@@ -1,9 +1,8 @@
-import os
-from dotenv import load_dotenv
 from docx import Document
 from sarvamai import SarvamAI
+import os
+from dotenv import load_dotenv
 
-# Load .env variables
 load_dotenv()
 
 api_key = os.getenv("SARVAM_API_KEY")
@@ -12,11 +11,12 @@ if not api_key:
 
 client = SarvamAI(api_subscription_key=api_key)
 
+
 def translate_doc(input_path, output_path, source_lang, target_lang):
     doc = Document(input_path)
     new_doc = Document()
 
-    MAX_CHARS = 800
+    MAX_CHARS = 2000
     buffer = []
     buffer_len = 0
 
@@ -57,16 +57,3 @@ def translate_doc(input_path, output_path, source_lang, target_lang):
         new_doc.add_paragraph(t)
 
     new_doc.save(output_path)
-
-if __name__ == "__main__":
-    input_file = "input.docx"
-    output_file = "translated.docx"
-
-    translate_doc(
-        input_file,
-        output_file,
-        source_lang="en-IN",
-        target_lang="hi-IN"
-    )
-
-    print("Translation complete. Saved as translated.docx")
