@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from docx import Document
 from sarvamai import SarvamAI
 from translate_doc import translate_doc
+from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
@@ -18,6 +19,13 @@ client = SarvamAI(api_subscription_key=api_key)
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # tighten later
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.post("/translate-doc")
 async def translate_document(
