@@ -18,11 +18,15 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten later to your domain
+    allow_origins=[
+        "https://job-joseph.com",
+        "https://www.job-joseph.com"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["POST", "OPTIONS"],
     allow_headers=["*"],
 )
+
 
 @app.post("/translate-doc")
 async def translate_document(
