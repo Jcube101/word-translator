@@ -16,7 +16,7 @@ def translate_doc(input_path, output_path, source_lang, target_lang):
     doc = Document(input_path)
     new_doc = Document()
 
-    MAX_CHARS = 2000
+    MAX_CHARS = 900
     buffer = []
     buffer_len = 0
 
