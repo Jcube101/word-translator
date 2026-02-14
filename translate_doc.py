@@ -32,8 +32,7 @@ def translate_doc(input_path, output_path, source_lang, target_lang):
             target_language_code=target_lang
         )
 
-        translated_block = response.translated_text
-        return translated_block.split("\n")
+        return response.translated_text.split("\n")
 
     for para in doc.paragraphs:
         text = para.text.strip()
@@ -47,7 +46,7 @@ def translate_doc(input_path, output_path, source_lang, target_lang):
             for t in translated_paras:
                 new_doc.add_paragraph(t)
 
-            buffer = []
+            buffer.clear()
             buffer_len = 0
 
         buffer.append(text)
