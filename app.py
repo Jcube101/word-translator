@@ -27,7 +27,7 @@ async def translate_document(
     target_lang: str = Form(...)
 ):
     tmpdir = tempfile.mkdtemp()
-    input_path = os.path.join(tmpdir, file.filename)
+    input_path = os.path.join(tmpdir, "input.docx")
     output_path = os.path.join(tmpdir, "translated.docx")
 
     contents = await file.read()
