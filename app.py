@@ -32,6 +32,7 @@ app.add_middleware(
 async def translate_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    source_lang: str = Form(...),
     target_lang: str = Form(...),
     mode: str = Form("formal")
 ):
@@ -46,6 +47,7 @@ async def translate_document(
     translate_doc(
         input_path=input_path,
         output_path=output_path,
+        source_lang=source_lang,
         target_lang=target_lang,
         mode=mode
     )
