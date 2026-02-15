@@ -12,7 +12,7 @@ if not api_key:
 client = SarvamAI(api_subscription_key=api_key)
 
 
-def translate_doc(input_path, output_path, source_lang, target_lang):
+def translate_doc(input_path, output_path, target_lang, mode):
     doc = Document(input_path)
     new_doc = Document()
 
@@ -28,8 +28,9 @@ def translate_doc(input_path, output_path, source_lang, target_lang):
 
         response = client.text.translate(
             input=text_block,
-            source_language_code=source_lang,
-            target_language_code=target_lang
+            source_language_code="en-IN",
+            target_language_code=target_lang,
+            mode=mode
         )
 
         return response.translated_text.split("\n")

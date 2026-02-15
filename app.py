@@ -32,8 +32,8 @@ app.add_middleware(
 async def translate_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    source_lang: str = Form(...),
-    target_lang: str = Form(...)
+    target_lang: str = Form(...),
+    mode: str = Form("formal")
 ):
     tmpdir = tempfile.mkdtemp()
     input_path = os.path.join(tmpdir, "input.docx")
@@ -44,10 +44,10 @@ async def translate_document(
         f.write(contents)
 
     translate_doc(
-        input_path,
-        output_path,
-        source_lang,
-        target_lang
+        input_path=input_path,
+        output_path=output_path,
+        target_lang=target_lang,
+        mode=mode
     )
 
     background_tasks.add_task(
