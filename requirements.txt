@@ -4,3 +4,7 @@ python-docx
 python-dotenv
 python-multipart
 sarvamai
+
+# Test dependencies
+pytest
+httpx
