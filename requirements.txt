@@ -3,6 +3,7 @@ uvicorn
 python-docx
 python-dotenv
 python-multipart
+slowapi
 sarvamai
 
 # Test dependencies

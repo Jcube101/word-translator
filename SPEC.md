@@ -19,7 +19,6 @@ This document defines the authoritative behaviour of the `word-translator` servi
 - Tables, headers, footers, text boxes, comments, or track changes
 - Document structure beyond top-level paragraphs
 - Authentication of API consumers
-- Rate limiting or quota enforcement
 
 ---
 
@@ -43,30 +42,29 @@ Content-Type: multipart/form-data
 
 ### Language Code Format
 
-All language codes use BCP-47 format as required by the Sarvam AI API. Supported values include (but are not limited to):
+All language codes use BCP-47 format. The server validates against an explicit allowlist and returns HTTP 422 for unrecognised codes. Accepted values:
 
-| Code    | Language   |
-|---------|------------|
+| Code    | Language        |
+|---------|-----------------|
 | `en-IN` | English (India) |
-| `hi-IN` | Hindi      |
-| `ta-IN` | Tamil      |
-| `te-IN` | Telugu     |
-| `kn-IN` | Kannada    |
-| `ml-IN` | Malayalam  |
-| `mr-IN` | Marathi    |
-| `gu-IN` | Gujarati   |
-| `bn-IN` | Bengali    |
-| `pa-IN` | Punjabi    |
-
-Refer to the [Sarvam AI documentation](https://www.sarvam.ai/) for the complete list of supported language pairs.
+| `hi-IN` | Hindi           |
+| `ta-IN` | Tamil           |
+| `te-IN` | Telugu          |
+| `kn-IN` | Kannada         |
+| `ml-IN` | Malayalam       |
+| `mr-IN` | Marathi         |
+| `gu-IN` | Gujarati        |
+| `bn-IN` | Bengali         |
+| `pa-IN` | Punjabi         |
+| `as-IN` | Assamese        |
+| `od-IN` | Odia            |
+| `ur-IN` | Urdu            |
 
 ### Translation Mode
 
-The `mode` field is passed directly to the Sarvam AI API. Known accepted values:
+The server validates `mode` against an explicit allowlist and returns HTTP 422 for unrecognised values. Accepted values:
 - `"formal"` (default) — formal register
 - `"colloquial"` — conversational register
-
-No server-side validation is performed on this field. An unrecognised value will cause the Sarvam API to reject the request, which propagates as HTTP 500.
 
 ### Response — Success
 
@@ -80,12 +78,20 @@ Body: binary `.docx` file containing the translated paragraphs.
 
 ### Response — Errors
 
-| Condition | HTTP Status | Body |
-|---|---|---|
-| Missing required field (`file`, `source_lang`, `target_lang`) | `422 Unprocessable Entity` | FastAPI validation error JSON |
-| Translation or document processing failure | `500 Internal Server Error` | FastAPI default error JSON |
+All error responses return a JSON body with a `"detail"` key.
 
-**Note:** There is currently no structured error body for 500 responses. The exception message propagates unformatted.
+| Condition | HTTP Status |
+|---|---|
+| Missing required field (`file`, `source_lang`, `target_lang`) | `422 Unprocessable Entity` |
+| Invalid `source_lang` or `target_lang` (not in allowlist) | `422 Unprocessable Entity` |
+| Invalid `mode` (not `formal` or `colloquial`) | `422 Unprocessable Entity` |
+| Document too large (total chars > `MAX_DOC_CHARS`) | `422 Unprocessable Entity` |
+| File exceeds `MAX_FILE_SIZE_MB` | `413 Request Entity Too Large` |
+| Per-IP rate limit exceeded | `429 Too Many Requests` |
+| Translation call exceeds `REQUEST_TIMEOUT_SECONDS` | `504 Gateway Timeout` |
+| Sarvam API or internal processing failure | `500 Internal Server Error` |
+
+Internal exception messages are never exposed in error responses.
 
 ### Example Request (curl)
 
@@ -212,11 +218,13 @@ Each request receives its own isolated temporary directory, so concurrent reques
 
 All runtime configuration is via environment variables, loaded from a `.env` file at startup via `python-dotenv`.
 
-| Variable         | Required | Description                       |
-|------------------|----------|-----------------------------------|
-| `SARVAM_API_KEY` | Yes      | Sarvam AI API subscription key    |
-
-The application raises `Exception("SARVAM_API_KEY not set")` at startup if this variable is absent.
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SARVAM_API_KEY` | Yes | — | Sarvam AI API subscription key. Application raises an exception at startup if absent. |
+| `RATE_LIMIT_PER_MINUTE` | No | `5` | Maximum requests per IP address per minute. Returns HTTP 429 when exceeded. Memory-backed; not shared across multiple uvicorn worker processes. |
+| `MAX_FILE_SIZE_MB` | No | `5` | Maximum accepted upload size in megabytes. Returns HTTP 413 when exceeded. Checked immediately after the file is read. |
+| `MAX_DOC_CHARS` | No | `50000` | Maximum total non-empty text characters across all paragraphs in the document. Returns HTTP 422 when exceeded. Checked before any Sarvam API call is made. ~55 Sarvam API batches at most per document at the default. |
+| `REQUEST_TIMEOUT_SECONDS` | No | `120` | Maximum seconds to wait for `translate_doc` to complete. Returns HTTP 504 when exceeded. The underlying thread continues to completion after timeout (cannot be interrupted). |
 
 ---
 
@@ -224,10 +232,11 @@ The application raises `Exception("SARVAM_API_KEY not set")` at startup if this 
 
 | Concern | Current Behaviour |
 |---|---|
-| **Scalability** | Single-process, no worker pool. Scale by running multiple uvicorn instances behind a load balancer. |
-| **Reliability** | No retry logic on Sarvam API failures; errors propagate as HTTP 500. |
-| **Observability** | Standard Python `logging` is used. Log level `WARNING` is emitted on paragraph count mismatches. No structured logging or metrics. |
-| **Security** | No authentication. CORS restricts browser access to two domains. API key is environment-variable only, never logged or returned. |
+| **Scalability** | Single-process, no worker pool. Scale by running multiple uvicorn instances behind a load balancer. Note: the rate limiter uses in-memory storage and is **not shared across workers** — each worker enforces its own independent limit. |
+| **Reliability** | No retry logic on Sarvam API failures; errors propagate as HTTP 500. Request timeout (default 120 s) prevents indefinite blocking. |
+| **Observability** | `INFO`-level log on every request (IP, file size, char count, langs, elapsed time). `WARNING`-level log on paragraph count mismatches. No structured JSON logging or metrics. |
+| **Security** | Per-IP rate limiting (default 5/minute). File size limit (default 5 MB). Document character limit (default 50,000 chars). Language code and mode validation. CORS restricts browser access to two domains. API key is environment-variable only, never logged or returned. Internal error messages are never exposed in HTTP responses. |
+| **Cost protection** | `MAX_FILE_SIZE_MB` caps upload bandwidth. `MAX_DOC_CHARS` caps Sarvam API calls per request. `RATE_LIMIT_PER_MINUTE` caps requests per IP. |
 | **Dependency versions** | No version pins in `requirements.txt`. Behaviour on future dependency updates is undefined. |
 
 ---
@@ -241,6 +250,7 @@ The application raises `Exception("SARVAM_API_KEY not set")` at startup if this 
 | `python-docx`      | `.docx` read/write                                    |
 | `python-dotenv`    | `.env` loading                                        |
 | `python-multipart` | `multipart/form-data` parsing (file uploads)          |
+| `slowapi`          | Per-IP rate limiting middleware for FastAPI           |
 | `sarvamai`         | Sarvam AI Python SDK                                  |
 | `pytest`           | Test runner (dev/test only)                           |
 | `httpx`            | Async HTTP client required by FastAPI TestClient (dev/test only) |

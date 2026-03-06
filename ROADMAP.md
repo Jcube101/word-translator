@@ -40,6 +40,23 @@ This document tracks the development direction of `word-translator`. Items are g
 - `pytest.ini` — pytest configuration pointing to `tests/`
 - `pytest` and `httpx` added to `requirements.txt`
 
+### Abuse-Protection Safeguards (completed 2026-03-06)
+
+Added to `app.py` ahead of public social-media launch. All six safeguards target financial and availability risks:
+
+| Safeguard | Trigger | HTTP | Config var | Default |
+|---|---|---|---|---|
+| Per-IP rate limiting (`slowapi`) | >N req/min from same IP | 429 | `RATE_LIMIT_PER_MINUTE` | 5 |
+| Language code validation | `source_lang`/`target_lang` not in allowlist | 422 | — | — |
+| Mode validation | `mode` not `formal` or `colloquial` | 422 | — | — |
+| File size limit | Upload > N MB | 413 | `MAX_FILE_SIZE_MB` | 5 |
+| Document character limit | Total paragraph chars > N | 422 | `MAX_DOC_CHARS` | 50,000 |
+| Request timeout | Translation takes > N seconds | 504 | `REQUEST_TIMEOUT_SECONDS` | 120 |
+
+Also added: `INFO`-level request logging (IP, size, chars, langs, elapsed), structured JSON error bodies with `"detail"` key for all error cases, 18 new tests (46 total).
+
+`slowapi` added to `requirements.txt`.
+
 ---
 
 ## Short-Term (next sprint)
@@ -48,15 +65,9 @@ This document tracks the development direction of `word-translator`. Items are g
 
 - 📋 **Pin dependency versions** — Run `pip freeze` against a known-good install and commit a pinned `requirements.txt`. This prevents silent breakage from upstream updates.
 
-- 📋 **Structured error responses** — Replace raw 500 exception propagation with a FastAPI exception handler that returns a JSON body (`{"error": "...", "detail": "..."}`) for Sarvam API failures. Clients currently receive no actionable error information.
-
-- 📋 **Validate `mode` parameter** — Enumerate accepted Sarvam mode values and validate at the endpoint level, returning HTTP 422 with a clear message for unknown values rather than a delayed 500.
-
 ### Medium Priority
 
 - 📋 **CI pipeline** — Add a GitHub Actions workflow that runs `pytest` on every push and pull request. No live API key needed since tests are fully mocked.
-
-- 📋 **Logging configuration** — Add a startup log handler (e.g. `logging.basicConfig`) with a configurable log level so warning and error messages are visible in production without code changes.
 
 ---
 
