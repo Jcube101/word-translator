@@ -1,6 +1,6 @@
 # LEARNINGS.md — word-translator
 
-This file records design decisions, bugs discovered, and lessons learned during development. It is intended to be updated as the project evolves.
+This file records design decisions, bugs discovered, and lessons learned during development. It is updated as the project evolves.
 
 ---
 
@@ -17,7 +17,7 @@ This file records design decisions, bugs discovered, and lessons learned during 
 
 **Rationale:** The Sarvam AI API imposes a character limit per request. Sending paragraphs in batches rather than one-by-one minimises the number of API round-trips while respecting that limit. 900 was chosen conservatively below any documented limit.
 
-**Trade-off:** If a single paragraph exceeds 900 characters it will be added to an empty buffer and sent alone, potentially still breaching the limit. There is no safeguard for this edge case.
+**Trade-off:** A single paragraph exceeding 900 characters used to be sent unguarded. This is now addressed by BUG-2's fix (see below).
 
 ---
 
@@ -26,7 +26,7 @@ This file records design decisions, bugs discovered, and lessons learned during 
 
 **Rationale:** Sending a single multi-line string allows the API to maintain context across adjacent paragraphs, which can improve translation quality for connected sentences.
 
-**Trade-off:** If the Sarvam API normalises or removes newlines in its output, the split produces fewer paragraphs than were submitted. The output document will then silently have fewer paragraphs than the input, with no error raised.
+**Trade-off:** If the Sarvam API normalises or removes newlines in its output, the split produces fewer paragraphs than were submitted. The output document will then silently have fewer paragraphs than the input. A warning log (BUG-3's fix) now flags this at runtime.
 
 ---
 
@@ -35,16 +35,14 @@ This file records design decisions, bugs discovered, and lessons learned during 
 
 **Rationale:** `python-docx` requires non-trivial run-level manipulation to replicate formatting. At the prototype stage this complexity was not justified.
 
-**Trade-off:** Bold, italic, font size, heading styles, lists, and all other inline/block formatting is lost. This is the single most visible limitation for end users.
+**Trade-off:** Bold, italic, font size, heading styles, lists, and all other inline/block formatting is lost. This is the single most visible limitation for end users. Tracked in ROADMAP.md as a long-term consideration.
 
 ---
 
 ### 4. Flat project structure
-**Decision:** All Python source lives in the project root with no subdirectories.
+**Decision:** All Python source lives in the project root. `tests/` is the only subdirectory.
 
-**Rationale:** The service has exactly two modules (`app.py`, `translate_doc.py`). Introducing a `src/` package or sub-packages would add indirection with no benefit at this size.
-
-**Trade-off:** Scales poorly if the project grows. A `tests/` directory (already recommended in CLAUDE.md) is the one justified exception.
+**Rationale:** The service has exactly two modules (`app.py`, `translate_doc.py`). Introducing a `src/` package would add indirection with no benefit at this size.
 
 ---
 
@@ -55,70 +53,97 @@ This file records design decisions, bugs discovered, and lessons learned during 
 
 ---
 
-### 6. No version pinning in `requirements.txt`
-**Decision:** Dependencies are listed without version specifiers (`fastapi`, `uvicorn`, etc.).
+### 6. Dependency injection for the Sarvam client
+**Decision:** `translate_doc()` accepts an optional `client` parameter. When `None`, a real client is created from the environment. In tests, a mock is passed.
+
+**Rationale:** This was introduced as a fix for BUG-4, replacing the previous module-level client instantiation. It eliminates the need for patching and makes the dependency explicit.
+
+**Pattern:**
+```python
+def translate_doc(..., client=None):
+    if client is None:
+        client = _get_client()
+```
+
+---
+
+### 7. No version pinning in `requirements.txt`
+**Decision:** Dependencies are listed without version specifiers.
 
 **Rationale:** Acceptable for a rapid prototype; simplifies initial setup.
 
-**Trade-off:** Any upstream breaking change will silently break the service on the next `pip install`. Should be pinned (e.g. `pip freeze > requirements.txt`) before long-term deployment.
+**Trade-off:** Any upstream breaking change will silently break the service on the next `pip install`. Should be pinned before long-term deployment.
 
 ---
 
-## Bugs Discovered
+## Bugs Discovered and Fixed
 
-### BUG-1: Windows-only temp directory cleanup (active)
-**File:** `app.py`, line 56
-**Code:** `os.system(f'rmdir /s /q "{tmpdir}"')`
-**Impact:** On Linux/macOS (the likely deployment environment), this command is a no-op. Every request that processes a document leaves behind a directory under `/tmp` containing both the input and output `.docx` files. These accumulate until the OS purges `/tmp` or the process restarts.
-**Fix:** Replace with `shutil.rmtree(tmpdir, ignore_errors=True)` which is cross-platform. Confirm deployment OS before changing.
-
----
-
-### BUG-2: No guard against oversized single paragraphs (active)
-**File:** `translate_doc.py`, lines 45–54
-**Impact:** A paragraph whose text length alone exceeds 900 characters will be buffered and sent as a single block to the Sarvam API, potentially exceeding the API's per-request character limit and causing a runtime error.
-**Fix:** Either truncate at the character limit (lossy) or split long paragraphs on sentence boundaries before buffering.
+### BUG-1: Windows-only temp directory cleanup ✅ Fixed
+**File:** `app.py`
+**Original code:** `os.system(f'rmdir /s /q "{tmpdir}"')`
+**Impact:** On Linux/macOS, this command is a no-op. Every request left behind a directory under `/tmp` containing both `.docx` files. These accumulated until the OS purged `/tmp`.
+**Fix (2026-03-05):** Replaced with `shutil.rmtree(tmpdir, True)` — cross-platform, silent on errors, called via `background_tasks.add_task`.
 
 ---
 
-### BUG-3: Silent paragraph count mismatch (active)
-**File:** `translate_doc.py`, line 36
-**Impact:** If the Sarvam API returns fewer or more `\n`-separated lines than were submitted (e.g. it merges two short sentences), the output document will have a different number of paragraphs than the input without any warning.
-**Fix:** Add a post-translation assertion or logging statement comparing submitted vs. returned paragraph counts.
+### BUG-2: No guard against oversized single paragraphs ✅ Fixed
+**File:** `translate_doc.py`
+**Impact:** A paragraph whose text length alone exceeded 900 characters was buffered and sent as a single block to the Sarvam API, potentially exceeding the API's per-request character limit and causing a runtime error.
+**Fix (2026-03-05):** Introduced `_chunk_text(text, max_chars)` which splits long text on whitespace boundaries (falling back to a hard character split). Each chunk is handled independently within the buffer loop. This ensures no single API request ever exceeds 900 characters.
 
 ---
 
-### BUG-4: Module-level side effects make `translate_doc` hard to test (active)
-**File:** `translate_doc.py`, lines 6–12
-**Impact:** `load_dotenv()`, `os.getenv()`, and `SarvamAI(...)` all execute at import time. Any test that imports `translate_doc` will fail immediately unless `SARVAM_API_KEY` is set in the environment, and it will instantiate a real API client even in unit tests.
-**Fix:** Move client initialisation inside the `translate_doc()` function or accept the client as a parameter (dependency injection), which also enables easy mocking in tests.
+### BUG-3: Silent paragraph count mismatch ✅ Fixed
+**File:** `translate_doc.py`
+**Impact:** If the Sarvam API returned fewer or more `\n`-separated lines than were submitted, the output document silently had a different paragraph count with no indication to the caller or operator.
+**Fix (2026-03-05):** After each `flush_buffer()`, the submitted and returned counts are compared. If they differ, a `WARNING`-level log message is emitted via `logging.getLogger(__name__)`.
+
+---
+
+### BUG-4: Module-level side effects make `translate_doc` untestable ✅ Fixed
+**File:** `translate_doc.py`
+**Impact:** `load_dotenv()`, `os.getenv()`, and `SarvamAI(...)` all executed at import time. Any test importing `translate_doc` would fail unless `SARVAM_API_KEY` was present in the environment, and a real API client was instantiated even in unit tests. This also made the module impossible to import safely in environments without credentials.
+**Fix (2026-03-05):**
+- Removed the module-level `client = SarvamAI(...)` instantiation.
+- Introduced `_get_client()` — a private factory function that creates the client from the environment on demand.
+- Added `client=None` parameter to `translate_doc()`. When `None`, `_get_client()` is called. Tests pass a `MagicMock` instead.
+- `load_dotenv()` is retained at module level (it is safe to call without a key — it simply does nothing if `.env` is absent).
 
 ---
 
 ## Observations & Lessons
 
+### Dependency injection is the right pattern for external clients
+The original pattern (module-level instantiation) is common in quick scripts but breaks unit testing. The `client=None` default parameter is a minimal, Pythonic solution: production callers pass nothing, tests pass mocks, and the function signature documents the dependency explicitly.
+
+### shutil.rmtree vs os.system for cleanup
+Using `shutil.rmtree` is always preferable to shell commands for filesystem cleanup in Python: it is cross-platform, raises no subprocess overhead, handles non-empty directories, and accepts `ignore_errors=True` to silently handle races between the background task and the OS.
+
 ### Testing the Sarvam API in isolation
-Manual testing with `curl` is the current validation path. There is no mock for the Sarvam SDK, which means every test run touching `translate_doc` requires a live API key and makes real network calls. Introducing a mock (via `unittest.mock.patch`) is the minimum step needed to make the test suite runnable in CI without credentials.
+Manual testing with `curl` was the only validation path before the test suite was added. Now, `pytest -v` validates all core logic with zero network calls. The mock client pattern via `client=None` dependency injection is far cleaner than patching at the module level.
 
 ### CORS scope is deliberately narrow
-Only `https://job-joseph.com` and `https://www.job-joseph.com` are in the allow-list. This was a deliberate tightening after the original broad CORS was added (`Enable CORS for browser access` → `Fix CORS for Lovable domain`). Any new consumer of the API (e.g. a staging frontend) must be added explicitly.
+Only `https://job-joseph.com` and `https://www.job-joseph.com` are in the allow-list. This was a deliberate tightening after the original broad CORS was added (`Enable CORS for browser access` → `Fix CORS for Lovable domain`). Any new consumer (e.g. a staging frontend) must be added explicitly.
 
-### Translation mode is user-controlled
-The `mode` field (defaulting to `"formal"`) is passed directly to the Sarvam API without validation. If the API rejects an unknown mode, the exception propagates as a 500. Accepted values should be documented and validated at the endpoint.
+### Translation mode is user-controlled but unvalidated
+The `mode` field is passed directly to the Sarvam API without validation. If the API rejects an unknown mode, the exception propagates as HTTP 500. Accepted values should be documented and validated at the endpoint. Tracked in ROADMAP.md.
 
 ### Git history as documentation
-Because there are no inline comments and the README is minimal, the git log (`git log --oneline`) is the primary record of *why* certain values were chosen (e.g. `Changed char limit to 900`). Keep commit messages descriptive.
+Because there were no inline comments and the README was minimal before this documentation effort, the git log was the primary record of *why* certain values were chosen (e.g. `Changed char limit to 900`). Keep commit messages descriptive.
 
 ---
 
 ## Recommended Next Steps
 
-| Priority | Action |
-|----------|--------|
-| High | Fix BUG-1: replace `rmdir /s /q` with `shutil.rmtree` |
-| High | Fix BUG-4: move client init inside function to unblock testing |
-| Medium | Add `pytest` test suite covering batching logic and API endpoint |
-| Medium | Pin dependency versions with `pip freeze` |
-| Low | Add error handling: catch Sarvam API errors and return HTTP 502 with a message |
-| Low | Validate `mode` parameter against known values |
-| Low | Log paragraph count mismatches (BUG-3) |
+| Priority | Action | Status |
+|----------|--------|--------|
+| High | Fix BUG-1: `shutil.rmtree` | ✅ Done |
+| High | Fix BUG-4: dependency injection for client | ✅ Done |
+| High | Add test suite | ✅ Done |
+| Medium | Fix BUG-2: long paragraph chunking | ✅ Done |
+| Medium | Fix BUG-3: log paragraph count mismatches | ✅ Done |
+| Medium | Write SPEC.md, ROADMAP.md, update CLAUDE.md | ✅ Done |
+| Medium | Pin dependency versions | 📋 Planned (see ROADMAP.md) |
+| Medium | Add CI pipeline (GitHub Actions) | 📋 Planned |
+| Low | Structured error responses (HTTP 502 for Sarvam failures) | 📋 Planned |
+| Low | Validate `mode` parameter against known values | 📋 Planned |
