@@ -46,9 +46,23 @@ Create a `.env` file in the project root (it is gitignored):
 
 ```
 SARVAM_API_KEY=your_sarvam_api_key_here
+
+# Optional abuse-protection limits (defaults shown):
+RATE_LIMIT_PER_MINUTE=5
+MAX_FILE_SIZE_MB=5
+MAX_DOC_CHARS=50000
+REQUEST_TIMEOUT_SECONDS=120
 ```
 
-`app.py` calls `load_dotenv()` on import and will raise an exception at startup if `SARVAM_API_KEY` is not set. `translate_doc.py` validates the key lazily at the point of the first API call (when `client` is not injected).
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SARVAM_API_KEY` | Yes | — | Sarvam AI subscription key. App raises at startup if absent. |
+| `RATE_LIMIT_PER_MINUTE` | No | `5` | Max requests per IP per minute (HTTP 429 when exceeded). Memory-backed — **not shared across multiple uvicorn workers**. |
+| `MAX_FILE_SIZE_MB` | No | `5` | Max upload file size in MB (HTTP 413 when exceeded). |
+| `MAX_DOC_CHARS` | No | `50000` | Max total non-empty characters across all paragraphs (HTTP 422 when exceeded). Caps Sarvam API cost per request. |
+| `REQUEST_TIMEOUT_SECONDS` | No | `120` | Max seconds for a translation call (HTTP 504 when exceeded). |
+
+`app.py` reads all variables at startup. `translate_doc.py` validates the Sarvam key lazily at the point of the first API call (when `client` is not injected).
 
 ## Running the Application
 
@@ -126,9 +140,22 @@ def translate_doc(input_path, output_path, source_lang, target_lang, mode, clien
 
 When `client=None` (production), a `SarvamAI` instance is created from the environment key. In tests, pass a `MagicMock` to avoid any network calls or key requirements.
 
+### Abuse-Protection Safeguards (`app.py`)
+
+Six safeguards are applied in the endpoint, in cheapest-first order:
+
+1. **Language code validation** — `source_lang` and `target_lang` are checked against an allowlist of 13 Sarvam BCP-47 codes. HTTP 422 if invalid (zero I/O cost).
+2. **Mode validation** — `mode` must be `"formal"` or `"colloquial"`. HTTP 422 if invalid.
+3. **File size limit** — `len(contents) > MAX_FILE_SIZE_BYTES` → HTTP 413.
+4. **Document character limit** — total non-empty paragraph characters > `MAX_DOC_CHARS` → HTTP 422. Checked after writing to disk, before any Sarvam call. Directly caps API cost per request.
+5. **Request timeout** — `translate_doc` runs in a `ThreadPoolExecutor` wrapped with `asyncio.wait_for`. HTTP 504 on expiry.
+6. **Per-IP rate limit** — `slowapi` Limiter with `RATE_LIMIT_PER_MINUTE` per IP. HTTP 429 when exceeded. Memory-backed; **not shared across multiple uvicorn worker processes**.
+
+All error responses include a `{"detail": "..."}` JSON body. Internal exception messages are never exposed.
+
 ### Temporary File Handling (`app.py`)
 
-Each request creates a `tempfile.mkdtemp()` directory containing `input.docx` and `translated.docx`. After the response is sent, a FastAPI `BackgroundTask` calls `shutil.rmtree(tmpdir, True)` to clean up, which works correctly on all platforms.
+Each request creates a `tempfile.mkdtemp()` directory containing `input.docx` and `translated.docx`. Early-exit paths (char limit exceeded, timeout, exception) call `shutil.rmtree(tmpdir, True)` inline before returning. The success path uses `background_tasks.add_task(shutil.rmtree, tmpdir, True)` so the file remains readable until `FileResponse` finishes streaming.
 
 ## Dependencies
 
@@ -137,8 +164,9 @@ Each request creates a `tempfile.mkdtemp()` directory containing `input.docx` an
 | `fastapi`          | Web framework for the API                     |
 | `uvicorn`          | ASGI server to run FastAPI                    |
 | `python-docx`      | Read and write `.docx` files                  |
-| `python-dotenv`    | Load `SARVAM_API_KEY` from `.env`             |
+| `python-dotenv`    | Load environment variables from `.env`        |
 | `python-multipart` | Parse `multipart/form-data` file uploads      |
+| `slowapi`          | Per-IP rate limiting middleware               |
 | `sarvamai`         | Official Sarvam AI Python SDK                 |
 | `pytest`           | Test runner (dev/test)                        |
 | `httpx`            | HTTP client required by FastAPI TestClient (dev/test) |
@@ -160,8 +188,9 @@ Each request creates a `tempfile.mkdtemp()` directory containing `input.docx` an
 1. **No version pinning:** `requirements.txt` may break on future dependency updates.
 2. **Formatting loss:** Document styles and inline formatting are stripped during translation.
 3. **Partial document coverage:** Only top-level paragraphs are translated; tables and other content blocks are ignored.
-4. **No structured error responses:** Sarvam API failures return HTTP 500 with no user-friendly message.
-5. **No CI:** Changes cannot be automatically validated via a pipeline (tests can be run locally).
+4. **No CI:** Changes cannot be automatically validated via a pipeline (tests can be run locally).
+5. **Rate limiter is per-process:** `slowapi` uses in-memory storage. If uvicorn is run with multiple workers (`--workers N`), each worker enforces its own independent limit. An IP can make `N × RATE_LIMIT_PER_MINUTE` requests per minute. Use Redis storage for multi-worker deployments.
+6. **Timeout does not stop the thread:** When `REQUEST_TIMEOUT_SECONDS` expires, HTTP 504 is returned immediately but the underlying translation thread continues running until the Sarvam API call completes. API credits may still be consumed.
 
 ## Related Documents
 
