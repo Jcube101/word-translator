@@ -1,38 +1,28 @@
 """
-Unit tests for translate_doc.py — batching and document-processing logic.
+Unit tests for translate_doc.py — batching logic, chunking, and document processing.
 
-These tests mock the SarvamAI client so they run without a real API key
-and make no network calls.
+The SarvamAI client is supplied via the `client` parameter (dependency injection),
+so these tests make no network calls and require no real SARVAM_API_KEY.
 
 Run with:
     pytest tests/test_translate_doc.py -v
 """
 
 import os
-import sys
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from docx import Document
 
-# ---------------------------------------------------------------------------
-# Patch the SarvamAI client before translate_doc is imported so that the
-# module-level instantiation (BUG-4) does not require a real SARVAM_API_KEY.
-# ---------------------------------------------------------------------------
-
-os.environ.setdefault("SARVAM_API_KEY", "test-key-for-unit-tests")
-
-with patch("sarvamai.SarvamAI"):
-    from translate_doc import translate_doc
-
+from translate_doc import translate_doc, _chunk_text
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _make_docx(paragraphs: list[str]) -> str:
-    """Write a temporary .docx file containing the given paragraphs and return its path."""
+    """Write a temporary .docx file with the given paragraphs; return its path."""
     tmpdir = tempfile.mkdtemp()
     path = os.path.join(tmpdir, "input.docx")
     doc = Document()
@@ -42,148 +32,195 @@ def _make_docx(paragraphs: list[str]) -> str:
     return path
 
 
-def _mock_translate_response(text: str) -> MagicMock:
-    """Return a mock that mimics the Sarvam API response structure."""
-    mock_response = MagicMock()
-    mock_response.translated_text = text
-    return mock_response
+def _mock_client(translated_text: str) -> MagicMock:
+    """Return a mock SarvamAI client whose translate() returns *translated_text*."""
+    response = MagicMock()
+    response.translated_text = translated_text
+    client = MagicMock()
+    client.text.translate.return_value = response
+    return client
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# _chunk_text unit tests
+# ---------------------------------------------------------------------------
+
+class TestChunkText:
+
+    def test_short_text_returned_as_single_chunk(self):
+        assert _chunk_text("hello", 900) == ["hello"]
+
+    def test_exact_limit_returned_as_single_chunk(self):
+        text = "A" * 900
+        assert _chunk_text(text, 900) == [text]
+
+    def test_text_over_limit_is_split(self):
+        text = "A" * 1800
+        chunks = _chunk_text(text, 900)
+        assert len(chunks) == 2
+        assert all(len(c) <= 900 for c in chunks)
+
+    def test_split_prefers_whitespace_boundary(self):
+        # "hello world" is 11 chars; limit of 7 should split at the space.
+        chunks = _chunk_text("hello world", 7)
+        assert chunks[0] == "hello"
+        assert chunks[1] == "world"
+
+    def test_hard_split_when_no_space(self):
+        text = "A" * 20
+        chunks = _chunk_text(text, 10)
+        assert all(len(c) <= 10 for c in chunks)
+        assert "".join(chunks) == text
+
+    def test_reconstructed_text_matches_original_whitespace_split(self):
+        words = ["word"] * 300  # 1500 chars with spaces
+        text = " ".join(words)
+        chunks = _chunk_text(text, 900)
+        assert all(len(c) <= 900 for c in chunks)
+        # Joining chunks with a space should reconstruct the original.
+        assert " ".join(chunks) == text
+
+
+# ---------------------------------------------------------------------------
+# translate_doc unit tests
 # ---------------------------------------------------------------------------
 
 class TestTranslateDocBatching:
-    """Validate that the 900-character batching logic flushes at the right time."""
 
     def test_single_short_paragraph(self, tmp_path):
         """A single short paragraph is translated and written to the output."""
         input_path = _make_docx(["Hello world"])
         output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते दुनिया")
 
-        with patch("translate_doc.client") as mock_client:
-            mock_client.text.translate.return_value = _mock_translate_response("नमस्ते दुनिया")
-            translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal")
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
 
         result = Document(output_path)
         texts = [p.text for p in result.paragraphs if p.text]
         assert texts == ["नमस्ते दुनिया"]
-        mock_client.text.translate.assert_called_once()
+        client.text.translate.assert_called_once()
 
-    def test_empty_paragraphs_are_preserved_without_api_call(self, tmp_path):
+    def test_empty_paragraphs_preserved_without_api_call(self, tmp_path):
         """Empty paragraphs are written as blank lines and never sent to the API."""
         input_path = _make_docx(["Hello", "", "World"])
         output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते\nदुनिया")
 
-        with patch("translate_doc.client") as mock_client:
-            mock_client.text.translate.return_value = _mock_translate_response("नमस्ते\nदुनिया")
-            translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal")
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
 
-        # The API should only have been called for the non-empty paragraphs.
-        assert mock_client.text.translate.call_count == 1
-
+        assert client.text.translate.call_count == 1
         result = Document(output_path)
-        all_texts = [p.text for p in result.paragraphs]
-        # Blank paragraph must be present somewhere in the output.
-        assert "" in all_texts
+        assert "" in [p.text for p in result.paragraphs]
 
     def test_buffer_flushes_when_limit_exceeded(self, tmp_path):
-        """When accumulated text exceeds 900 chars, a flush occurs before adding the next paragraph."""
-        # Create two paragraphs whose combined length exceeds 900 characters.
-        para_a = "A" * 500
-        para_b = "B" * 500  # 500 + 500 = 1000 > 900, so flush is expected mid-loop.
-        input_path = _make_docx([para_a, para_b])
+        """Two paragraphs that together exceed 900 chars cause two separate API calls."""
+        input_path = _make_docx(["A" * 500, "B" * 500])
         output_path = str(tmp_path / "out.docx")
+        client = _mock_client("translated")
 
-        with patch("translate_doc.client") as mock_client:
-            mock_client.text.translate.return_value = _mock_translate_response("translated")
-            translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal")
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
 
-        # para_a is flushed when para_b would exceed the limit, then para_b is flushed
-        # at the end — so exactly 2 API calls are expected.
-        assert mock_client.text.translate.call_count == 2
+        assert client.text.translate.call_count == 2
 
     def test_multiple_short_paragraphs_batched_in_one_call(self, tmp_path):
-        """Several short paragraphs that fit within 900 chars are sent in a single API call."""
-        paragraphs = [f"Line {i}" for i in range(10)]  # ~70 chars total — well under limit
+        """Several short paragraphs that fit within 900 chars go in a single API call."""
+        paragraphs = [f"Line {i}" for i in range(10)]
         input_path = _make_docx(paragraphs)
         output_path = str(tmp_path / "out.docx")
+        translated = "\n".join([f"पंक्ति {i}" for i in range(10)])
+        client = _mock_client(translated)
 
-        with patch("translate_doc.client") as mock_client:
-            translated = "\n".join([f"पंक्ति {i}" for i in range(10)])
-            mock_client.text.translate.return_value = _mock_translate_response(translated)
-            translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal")
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
 
-        mock_client.text.translate.assert_called_once()
+        client.text.translate.assert_called_once()
 
     def test_output_file_is_created(self, tmp_path):
         """The output .docx file is written to the specified path."""
         input_path = _make_docx(["Test"])
         output_path = str(tmp_path / "translated.docx")
+        client = _mock_client("परीक्षण")
 
-        with patch("translate_doc.client") as mock_client:
-            mock_client.text.translate.return_value = _mock_translate_response("परीक्षण")
-            translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal")
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
 
         assert os.path.exists(output_path)
 
-    def test_translation_mode_is_forwarded(self, tmp_path):
+    def test_translation_mode_forwarded(self, tmp_path):
         """The `mode` parameter is passed through to the Sarvam API call."""
         input_path = _make_docx(["Hello"])
         output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते")
 
-        with patch("translate_doc.client") as mock_client:
-            mock_client.text.translate.return_value = _mock_translate_response("नमस्ते")
-            translate_doc(input_path, output_path, "en-IN", "hi-IN", "colloquial")
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "colloquial", client=client)
 
-        call_kwargs = mock_client.text.translate.call_args.kwargs
+        call_kwargs = client.text.translate.call_args.kwargs
         assert call_kwargs.get("mode") == "colloquial"
 
     def test_source_and_target_language_forwarded(self, tmp_path):
         """source_lang and target_lang are forwarded to the Sarvam API."""
         input_path = _make_docx(["வணக்கம்"])
         output_path = str(tmp_path / "out.docx")
+        client = _mock_client("Hello")
 
-        with patch("translate_doc.client") as mock_client:
-            mock_client.text.translate.return_value = _mock_translate_response("Hello")
-            translate_doc(input_path, output_path, "ta-IN", "en-IN", "formal")
+        translate_doc(input_path, output_path, "ta-IN", "en-IN", "formal", client=client)
 
-        call_kwargs = mock_client.text.translate.call_args.kwargs
+        call_kwargs = client.text.translate.call_args.kwargs
         assert call_kwargs.get("source_language_code") == "ta-IN"
         assert call_kwargs.get("target_language_code") == "en-IN"
 
-    def test_document_with_only_empty_paragraphs_makes_no_api_call(self, tmp_path):
-        """A document containing only blank paragraphs triggers no API calls."""
+    def test_all_empty_paragraphs_make_no_api_call(self, tmp_path):
+        """A document with only blank paragraphs triggers no API calls."""
         input_path = _make_docx(["", "", ""])
         output_path = str(tmp_path / "out.docx")
+        client = _mock_client("")
 
-        with patch("translate_doc.client") as mock_client:
-            translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal")
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
 
-        mock_client.text.translate.assert_not_called()
+        client.text.translate.assert_not_called()
 
-    def test_exact_900_char_paragraph_is_not_prematurely_flushed(self, tmp_path):
-        """A paragraph of exactly 900 characters fits in the buffer and is sent in one call."""
+    def test_exact_900_char_paragraph_sent_in_one_call(self, tmp_path):
+        """A paragraph of exactly 900 characters is sent in a single API call."""
         input_path = _make_docx(["C" * 900])
         output_path = str(tmp_path / "out.docx")
+        client = _mock_client("translated")
 
-        with patch("translate_doc.client") as mock_client:
-            mock_client.text.translate.return_value = _mock_translate_response("translated")
-            translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal")
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
 
-        mock_client.text.translate.assert_called_once()
+        client.text.translate.assert_called_once()
 
-    def test_paragraph_just_over_900_chars_causes_single_flush(self, tmp_path):
-        """
-        BUG-2 awareness test: a single 901-char paragraph will be buffered alone
-        and flushed in one API call (no split, no error raised by this code).
-        """
-        input_path = _make_docx(["D" * 901])
+    def test_oversized_single_paragraph_is_chunked(self, tmp_path):
+        """BUG-2 fix: a paragraph > 900 chars is split and each chunk sent separately."""
+        long_para = "word " * 250  # ~1250 chars; must be chunked
+        input_path = _make_docx([long_para.strip()])
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("translated")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        # Must have made more than one API call because the para exceeds 900 chars.
+        assert client.text.translate.call_count > 1
+        # Every submitted chunk must be <= 900 chars.
+        for call in client.text.translate.call_args_list:
+            submitted = call.kwargs.get("input", "")
+            assert len(submitted) <= 900
+
+    def test_paragraph_count_mismatch_logs_warning(self, tmp_path, caplog):
+        """BUG-3 fix: a mismatch between submitted and returned paragraph counts is logged."""
+        import logging
+        input_path = _make_docx(["Line one", "Line two"])
+        output_path = str(tmp_path / "out.docx")
+        # API returns only one line instead of two → mismatch.
+        client = _mock_client("Only one line returned")
+
+        with caplog.at_level(logging.WARNING, logger="translate_doc"):
+            translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        assert any("mismatch" in record.message.lower() for record in caplog.records)
+
+    def test_no_api_key_raises_without_client(self, tmp_path, monkeypatch):
+        """When no client is provided and SARVAM_API_KEY is absent, an exception is raised."""
+        monkeypatch.delenv("SARVAM_API_KEY", raising=False)
+        input_path = _make_docx(["Hello"])
         output_path = str(tmp_path / "out.docx")
 
-        with patch("translate_doc.client") as mock_client:
-            mock_client.text.translate.return_value = _mock_translate_response("translated")
+        with pytest.raises(Exception, match="SARVAM_API_KEY not set"):
             translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal")
-
-        # Current behaviour: still sends in one call (no safeguard).
-        mock_client.text.translate.assert_called_once()

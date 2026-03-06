@@ -10,15 +10,21 @@ This file provides guidance for AI assistants working in this repository.
 
 ```
 word-translator/
-├── app.py              # FastAPI application, route definitions, CORS config
-├── translate_doc.py    # Core translation logic (paragraph batching + Sarvam API calls)
-├── requirements.txt    # Python dependencies (no version pinning)
-├── README.md           # Brief project description
-├── .gitignore          # Ignores venv/, .env, __pycache__/, *.docx
-└── CLAUDE.md           # This file
+├── app.py                      # FastAPI application, route definitions, CORS config
+├── translate_doc.py            # Core translation logic (batching, chunking, Sarvam API calls)
+├── requirements.txt            # Python dependencies (no version pinning)
+├── pytest.ini                  # pytest configuration (testpaths = tests/)
+├── README.md                   # Brief project description
+├── CLAUDE.md                   # This file — AI assistant guide
+├── SPEC.md                     # Authoritative technical specification
+├── LEARNINGS.md                # Design decisions, bugs, and lessons learned
+├── ROADMAP.md                  # Development plans and status
+├── .gitignore                  # Ignores venv/, .env, __pycache__/, *.docx
+└── tests/
+    ├── __init__.py
+    ├── test_translate_doc.py   # Unit tests for translation batching/chunking logic
+    └── test_app.py             # Integration tests for the FastAPI endpoint
 ```
-
-There are no subdirectories, test files, CI/CD configuration, or build tooling.
 
 ## Environment Setup
 
@@ -42,7 +48,7 @@ Create a `.env` file in the project root (it is gitignored):
 SARVAM_API_KEY=your_sarvam_api_key_here
 ```
 
-Both `app.py` and `translate_doc.py` call `load_dotenv()` on import and will raise an exception at startup if `SARVAM_API_KEY` is not set.
+`app.py` calls `load_dotenv()` on import and will raise an exception at startup if `SARVAM_API_KEY` is not set. `translate_doc.py` validates the key lazily at the point of the first API call (when `client` is not injected).
 
 ## Running the Application
 
@@ -51,6 +57,14 @@ uvicorn app:app --reload
 ```
 
 The API will be available at `http://localhost:8000`.
+
+## Running Tests
+
+```bash
+pytest -v
+```
+
+Tests require no API key and make no network calls. All Sarvam API interactions are mocked via the `client` dependency-injection parameter.
 
 ## API Reference
 
@@ -83,7 +97,7 @@ curl -X POST http://localhost:8000/translate-doc \
 
 ## Key Implementation Details
 
-### Translation Batching (`translate_doc.py`)
+### Translation Batching and Chunking (`translate_doc.py`)
 
 Documents are translated paragraph-by-paragraph with a **900-character buffer limit** to stay within Sarvam API constraints:
 
@@ -93,20 +107,28 @@ Documents are translated paragraph-by-paragraph with a **900-character buffer li
 4. Empty paragraphs are preserved as blank lines without being sent to the API.
 5. Any remaining buffer content is flushed after all paragraphs are processed.
 
+**Long paragraph handling:** If a single paragraph exceeds 900 characters, `_chunk_text()` splits it on whitespace boundaries (falling back to a hard character-limit split) before buffering. Each chunk is treated as an independent unit.
+
+**Mismatch logging:** When the Sarvam API returns a different number of `\n`-separated lines than were submitted, a `WARNING`-level log message is emitted via the `translate_doc` logger.
+
 **Important caveats:**
 - Paragraph **formatting** (bold, italic, fonts, styles) is **not preserved** — all output paragraphs use the default document style.
-- The output paragraph count may differ from input if the API merges or splits lines on translation.
+- The output paragraph count may differ from input if the API merges or splits lines on translation, or if long paragraphs are chunked.
 - Only the `.paragraphs` property of the document is processed; tables, headers, footers, and text boxes are **not translated**.
+
+### Dependency Injection (`translate_doc.py`)
+
+`translate_doc()` accepts an optional `client` parameter:
+
+```python
+def translate_doc(input_path, output_path, source_lang, target_lang, mode, client=None):
+```
+
+When `client=None` (production), a `SarvamAI` instance is created from the environment key. In tests, pass a `MagicMock` to avoid any network calls or key requirements.
 
 ### Temporary File Handling (`app.py`)
 
-Each request creates a `tempfile.mkdtemp()` directory containing `input.docx` and `translated.docx`. Cleanup is scheduled via FastAPI `BackgroundTasks`.
-
-**Known bug (line 56 of `app.py`):** The cleanup command uses a Windows shell syntax:
-```python
-os.system(f'rmdir /s /q "{tmpdir}"')
-```
-This does nothing on Linux/macOS. Temporary directories will accumulate until the process restarts or the OS cleans `/tmp`. Do not change this without confirming the deployment OS.
+Each request creates a `tempfile.mkdtemp()` directory containing `input.docx` and `translated.docx`. After the response is sent, a FastAPI `BackgroundTask` calls `shutil.rmtree(tmpdir, True)` to clean up, which works correctly on all platforms.
 
 ## Dependencies
 
@@ -118,33 +140,42 @@ This does nothing on Linux/macOS. Temporary directories will accumulate until th
 | `python-dotenv`    | Load `SARVAM_API_KEY` from `.env`             |
 | `python-multipart` | Parse `multipart/form-data` file uploads      |
 | `sarvamai`         | Official Sarvam AI Python SDK                 |
+| `pytest`           | Test runner (dev/test)                        |
+| `httpx`            | HTTP client required by FastAPI TestClient (dev/test) |
 
 **Note:** `requirements.txt` has no version pins. If you encounter compatibility issues, pin versions after verifying a working combination.
 
 ## Conventions and Patterns
 
-- **Flat structure:** Keep all Python source files at the project root. Do not introduce subdirectories without a compelling reason.
+- **Flat structure:** Keep all Python source files at the project root. `tests/` is the only subdirectory.
 - **Single responsibility:** `app.py` handles HTTP concerns only; `translate_doc.py` handles document processing. Keep this separation.
-- **No tests:** The project currently has no test suite. If adding tests, use `pytest` and place files in a `tests/` directory.
+- **Dependency injection for testability:** Pass external clients/services as parameters with `None` defaults to make modules testable without real credentials.
+- **Tests:** Use `pytest`. Place all test files in `tests/`. Mock the Sarvam client via the `client` parameter — do not patch at the module level.
 - **No linting config:** No linter or formatter is configured. Follow PEP 8 style conventions manually.
 - **Environment-based config:** All secrets and deployment-specific values go in `.env`. Never hardcode credentials.
 - **Language codes:** Use BCP-47 format as expected by the Sarvam AI API (e.g., `en-IN`, `hi-IN`, `ta-IN`).
 
-## Known Issues and Limitations
+## Known Limitations (not bugs)
 
-1. **Cleanup bug:** Temp directory cleanup uses Windows syntax and silently fails on Linux (see above).
-2. **No version pinning:** `requirements.txt` may break on future dependency updates.
-3. **Formatting loss:** Document styles and inline formatting are stripped during translation.
-4. **Partial document coverage:** Only top-level paragraphs are translated; tables and other content blocks are ignored.
-5. **No error handling:** If the Sarvam API call fails, the exception propagates and returns a 500 with no user-friendly message.
-6. **No tests or CI:** Changes cannot be automatically validated.
+1. **No version pinning:** `requirements.txt` may break on future dependency updates.
+2. **Formatting loss:** Document styles and inline formatting are stripped during translation.
+3. **Partial document coverage:** Only top-level paragraphs are translated; tables and other content blocks are ignored.
+4. **No structured error responses:** Sarvam API failures return HTTP 500 with no user-friendly message.
+5. **No CI:** Changes cannot be automatically validated via a pipeline (tests can be run locally).
+
+## Related Documents
+
+- **[SPEC.md](./SPEC.md)** — Full technical specification (API contract, algorithm, file handling, NFRs)
+- **[LEARNINGS.md](./LEARNINGS.md)** — Design decisions, discovered bugs, and lessons learned
+- **[ROADMAP.md](./ROADMAP.md)** — Development plans, status, and prioritised backlog
 
 ## Development Workflow
 
-Since there is no test suite or CI pipeline, validate changes manually:
+Since there is no CI pipeline, validate changes manually:
 
 1. Activate your virtual environment and install dependencies.
 2. Set up `.env` with a valid `SARVAM_API_KEY`.
-3. Start the server with `uvicorn app:app --reload`.
-4. Test using `curl` or a tool like Postman against `http://localhost:8000/translate-doc`.
-5. Commit with a descriptive message following the pattern used in git history (imperative, short, focused on what changed).
+3. Run the test suite: `pytest -v` (no API key needed — all mocked).
+4. Start the server with `uvicorn app:app --reload`.
+5. Test end-to-end using `curl` or Postman against `http://localhost:8000/translate-doc`.
+6. Commit with a descriptive message following the pattern used in git history (imperative, short, focused on what changed).

@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 
 from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks
@@ -52,9 +53,7 @@ async def translate_document(
         mode=mode
     )
 
-    background_tasks.add_task(
-        lambda: os.system(f'rmdir /s /q "{tmpdir}"')
-    )
+    background_tasks.add_task(shutil.rmtree, tmpdir, True)
 
     return FileResponse(
         output_path,
