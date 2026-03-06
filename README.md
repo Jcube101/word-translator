@@ -1,2 +1,114 @@
 # word-translator
-A Python service that translates Word documents between languages using the Sarvam AI translation API.
+
+A lightweight Python microservice that translates Microsoft Word documents (`.docx`) between languages using the [Sarvam AI](https://www.sarvam.ai/) translation API. Built with FastAPI and intended to be consumed by a frontend at [job-joseph.com](https://job-joseph.com).
+
+---
+
+## Features
+
+- Translate `.docx` documents between any Sarvam-supported BCP-47 language pair
+- Paragraph-level batching with a 900-character buffer to respect API limits
+- Automatic chunking of long paragraphs (> 900 chars) on whitespace boundaries
+- Empty paragraphs preserved as blank lines without API calls
+- Runtime warning logging when API returns mismatched paragraph counts
+- Cross-platform temporary file cleanup via `shutil.rmtree`
+- CORS restricted to `https://job-joseph.com` and `https://www.job-joseph.com`
+
+---
+
+## Quick Start
+
+### 1. Install dependencies
+
+```bash
+python -m venv venv
+source venv/bin/activate       # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. Configure
+
+Create a `.env` file in the project root:
+
+```
+SARVAM_API_KEY=your_sarvam_api_key_here
+```
+
+### 3. Run
+
+```bash
+uvicorn app:app --reload
+```
+
+The API is available at `http://localhost:8000`.
+
+---
+
+## API
+
+### `POST /translate-doc`
+
+Translate a `.docx` file from one language to another.
+
+**Form fields:**
+
+| Field         | Type   | Required | Default    | Description                              |
+|---------------|--------|----------|------------|------------------------------------------|
+| `file`        | file   | Yes      | —          | A `.docx` Word document                  |
+| `source_lang` | string | Yes      | —          | BCP-47 source language (e.g. `en-IN`)    |
+| `target_lang` | string | Yes      | —          | BCP-47 target language (e.g. `hi-IN`)    |
+| `mode`        | string | No       | `"formal"` | Translation mode (`formal`/`colloquial`) |
+
+**Response:** `translated.docx` — a `.docx` file download.
+
+**Example:**
+
+```bash
+curl -X POST http://localhost:8000/translate-doc \
+  -F "file=@document.docx" \
+  -F "source_lang=en-IN" \
+  -F "target_lang=hi-IN" \
+  -F "mode=formal" \
+  --output translated.docx
+```
+
+---
+
+## Running Tests
+
+```bash
+pytest -v
+```
+
+No API key required — all Sarvam API interactions are mocked.
+
+---
+
+## Project Structure
+
+```
+word-translator/
+├── app.py                # FastAPI app, routing, CORS, temp file handling
+├── translate_doc.py      # Translation logic: batching, chunking, Sarvam calls
+├── requirements.txt      # Python dependencies
+├── pytest.ini            # pytest config
+├── SPEC.md               # Authoritative technical specification
+├── ROADMAP.md            # Development plans and backlog
+├── CLAUDE.md             # AI assistant guide
+├── LEARNINGS.md          # Design decisions and lessons learned
+└── tests/
+    ├── test_translate_doc.py
+    └── test_app.py
+```
+
+---
+
+## Known Limitations
+
+- **Formatting is not preserved** — bold, italic, fonts, and styles are stripped in the output.
+- **Partial document coverage** — only top-level paragraphs are translated; tables, headers, footers, and text boxes are skipped.
+- **No structured error responses** — Sarvam API failures return HTTP 500 with no user-friendly body.
+- **No version pinning** — `requirements.txt` has no version specifiers.
+- **No CI** — run `pytest -v` locally before pushing.
+
+See [ROADMAP.md](./ROADMAP.md) for planned improvements and [LEARNINGS.md](./LEARNINGS.md) for design decisions and bug history.
