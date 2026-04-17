@@ -65,17 +65,10 @@ Extended the `/translate-doc` endpoint and `translate_doc()` with three new para
 - ✅ **Add `speaker_gender` parameter** — Optional `speaker_gender` form field (`Male` / `Female`). Passed through to the Sarvam translation call when provided; omitted when not supplied. Validated against `VALID_GENDERS`; returns HTTP 422 on invalid values.
 - ✅ **Add `numerals_format` parameter** — Optional `numerals_format` form field (`international` / `native`), defaulting to `international`. Always passed through to the Sarvam translation call. Validated against `VALID_NUMERALS_FORMATS`; returns HTTP 422 on invalid values.
 
----
+### Infrastructure (completed 2026-04-18)
 
-## Short-Term (next sprint)
-
-### High Priority
-
-- 📋 **Pin dependency versions** — Run `pip freeze` against a known-good install and commit a pinned `requirements.txt`. This prevents silent breakage from upstream updates.
-
-### Medium Priority
-
-- 📋 **CI pipeline** — Add a GitHub Actions workflow that runs `pytest` on every push and pull request. No live API key needed since tests are fully mocked.
+- ✅ **Pin dependency versions** — Replaced unpinned `requirements.txt` with fully pinned versions from `pip freeze`. Prevents silent breakage from upstream updates.
+- ✅ **CI pipeline** — Added `.github/workflows/ci.yml`: triggers on every push and pull request, runs on `ubuntu-latest` with Python 3.11, installs pinned dependencies, and runs `pytest -v`. No API key required — all tests are fully mocked.
 
 ---
 
