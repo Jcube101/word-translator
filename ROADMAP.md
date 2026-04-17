@@ -69,9 +69,21 @@ Also added: `INFO`-level request logging (IP, size, chars, langs, elapsed), stru
 
 - 📋 **CI pipeline** — Add a GitHub Actions workflow that runs `pytest` on every push and pull request. No live API key needed since tests are fully mocked.
 
+- 📋 **Fix mode allowlist** — Add `classic-colloquial` and `code-mixed` to `VALID_MODES` in `app.py`. Currently these are valid Sarvam API modes on `mayura:v1` but are rejected with HTTP 422. One-line fix in the allowlist; update tests accordingly.
+
+- 📋 **Add `speaker_gender` parameter** — Expose an optional `speaker_gender` form field (`Male` / `Female`) in the `/translate-doc` endpoint and pass it through to the Sarvam translation call. Improves output quality for gendered languages like Hindi and Tamil. Validate against the two accepted values; default to omitting the parameter if not provided.
+
+- 📋 **Add `numerals_format` parameter** — Expose an optional `numerals_format` form field (`international` / `native`) in the `/translate-doc` endpoint and pass it through to the Sarvam translation call. Useful for documents containing numbers, dates, or financial figures. Default to `international` if not provided.
+
 ---
 
 ## Medium-Term (1–2 months)
+
+### API Capabilities
+
+- 📋 **Add `sarvam-translate:v1` model selection** — Expose an optional `model` form field in `/translate-doc` accepting `mayura:v1` (default) or `sarvam-translate:v1`. The new model supports all 22 scheduled languages of India (11 more than current: Bodo, Dogri, Konkani, Kashmiri, Maithili, Manipuri, Nepali, Sanskrit, Santali, Sindhi, and expanded Assamese/Urdu coverage). Constraint: `sarvam-translate:v1` only supports `formal` mode — validate this combination and return HTTP 422 if a colloquial mode is requested with that model. Update the language allowlist to include the 11 new codes when this model is selected.
+
+- 📋 **TTS endpoint (`POST /synthesize-doc`)** — New endpoint that accepts a `.docx` file and a target language code, extracts paragraph text, and sends it to the Sarvam `bulbul:v3` TTS API. Returns an MP3 audio file of the document read aloud. Supports voice selection from the `bulbul:v3` speaker list (default: `shubh`). Apply the same abuse-protection pattern as `/translate-doc`: file size limit, character cap, rate limiting, timeout. Can be used standalone or chained after a translation.
 
 ### Translation Quality
 
@@ -125,3 +137,4 @@ Also added: `INFO`-level request logging (IP, size, chars, langs, elapsed), stru
 | Full formatting preservation | Requires run-level reconstruction that is brittle when paragraph counts change on translation |
 | User authentication | The service is consumed by a known frontend; auth is handled at the infrastructure level |
 | Multi-file / bulk translation | Not a stated requirement; increases API surface complexity significantly |
+| Transliteration (`/transliterate` endpoint) | Out of current scope — useful for Roman-script output but not relevant to the core .docx translation use case. Revisit if user demand emerges. |
