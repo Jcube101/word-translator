@@ -273,6 +273,86 @@ class TestLanguageAndModeValidation:
             )
         assert response.status_code == 200
 
+    def test_classic_colloquial_mode_is_accepted(self):
+        """The 'classic-colloquial' mode passes validation and is forwarded to translate_doc."""
+        with patch("app.translate_doc", side_effect=_fake_translate):
+            response = client.post(
+                "/translate-doc",
+                files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+                data={"source_lang": "en-IN", "target_lang": "hi-IN", "mode": "classic-colloquial"},
+            )
+        assert response.status_code == 200
+
+    def test_code_mixed_mode_is_accepted(self):
+        """The 'code-mixed' mode passes validation and is forwarded to translate_doc."""
+        with patch("app.translate_doc", side_effect=_fake_translate):
+            response = client.post(
+                "/translate-doc",
+                files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+                data={"source_lang": "en-IN", "target_lang": "hi-IN", "mode": "code-mixed"},
+            )
+        assert response.status_code == 200
+
+    def test_speaker_gender_male_is_accepted(self):
+        """speaker_gender=Male passes validation."""
+        with patch("app.translate_doc", side_effect=_fake_translate):
+            response = client.post(
+                "/translate-doc",
+                files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+                data={"source_lang": "en-IN", "target_lang": "hi-IN", "speaker_gender": "Male"},
+            )
+        assert response.status_code == 200
+
+    def test_speaker_gender_female_is_accepted(self):
+        """speaker_gender=Female passes validation."""
+        with patch("app.translate_doc", side_effect=_fake_translate):
+            response = client.post(
+                "/translate-doc",
+                files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+                data={"source_lang": "en-IN", "target_lang": "hi-IN", "speaker_gender": "Female"},
+            )
+        assert response.status_code == 200
+
+    def test_invalid_speaker_gender_returns_422(self):
+        """An unrecognised speaker_gender returns HTTP 422."""
+        response = client.post(
+            "/translate-doc",
+            files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+            data={"source_lang": "en-IN", "target_lang": "hi-IN", "speaker_gender": "neutral"},
+        )
+        assert response.status_code == 422
+        assert "speaker_gender" in response.json()["detail"]
+
+    def test_numerals_format_international_is_accepted(self):
+        """numerals_format=international passes validation."""
+        with patch("app.translate_doc", side_effect=_fake_translate):
+            response = client.post(
+                "/translate-doc",
+                files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+                data={"source_lang": "en-IN", "target_lang": "hi-IN", "numerals_format": "international"},
+            )
+        assert response.status_code == 200
+
+    def test_numerals_format_native_is_accepted(self):
+        """numerals_format=native passes validation."""
+        with patch("app.translate_doc", side_effect=_fake_translate):
+            response = client.post(
+                "/translate-doc",
+                files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+                data={"source_lang": "en-IN", "target_lang": "hi-IN", "numerals_format": "native"},
+            )
+        assert response.status_code == 200
+
+    def test_invalid_numerals_format_returns_422(self):
+        """An unrecognised numerals_format returns HTTP 422."""
+        response = client.post(
+            "/translate-doc",
+            files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+            data={"source_lang": "en-IN", "target_lang": "hi-IN", "numerals_format": "decimal"},
+        )
+        assert response.status_code == 422
+        assert "numerals_format" in response.json()["detail"]
+
     def test_all_valid_lang_codes_accepted(self):
         """Every lang code in VALID_LANG_CODES is accepted without a 422."""
         valid_codes = app_module.VALID_LANG_CODES

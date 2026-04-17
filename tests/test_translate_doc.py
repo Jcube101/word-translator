@@ -216,6 +216,50 @@ class TestTranslateDocBatching:
 
         assert any("mismatch" in record.message.lower() for record in caplog.records)
 
+    def test_speaker_gender_forwarded_when_provided(self, tmp_path):
+        """speaker_gender is included in the API call when provided."""
+        input_path = _make_docx(["Hello"])
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", speaker_gender="Male", client=client)
+
+        call_kwargs = client.text.translate.call_args.kwargs
+        assert call_kwargs.get("speaker_gender") == "Male"
+
+    def test_speaker_gender_omitted_when_none(self, tmp_path):
+        """speaker_gender is not included in the API call when None."""
+        input_path = _make_docx(["Hello"])
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", speaker_gender=None, client=client)
+
+        call_kwargs = client.text.translate.call_args.kwargs
+        assert "speaker_gender" not in call_kwargs
+
+    def test_numerals_format_forwarded(self, tmp_path):
+        """numerals_format is always included in the API call."""
+        input_path = _make_docx(["Hello"])
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", numerals_format="native", client=client)
+
+        call_kwargs = client.text.translate.call_args.kwargs
+        assert call_kwargs.get("numerals_format") == "native"
+
+    def test_numerals_format_default_is_international(self, tmp_path):
+        """numerals_format defaults to 'international' when not specified."""
+        input_path = _make_docx(["Hello"])
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        call_kwargs = client.text.translate.call_args.kwargs
+        assert call_kwargs.get("numerals_format") == "international"
+
     def test_no_api_key_raises_without_client(self, tmp_path, monkeypatch):
         """When no client is provided and SARVAM_API_KEY is absent, an exception is raised."""
         monkeypatch.delenv("SARVAM_API_KEY", raising=False)

@@ -57,6 +57,14 @@ Also added: `INFO`-level request logging (IP, size, chars, langs, elapsed), stru
 
 `slowapi` added to `requirements.txt`.
 
+### API Parameter Enhancements (completed 2026-04-18)
+
+Extended the `/translate-doc` endpoint and `translate_doc()` with three new parameters; 58 tests total (10 new):
+
+- ✅ **Fix mode allowlist** — Added `classic-colloquial` and `code-mixed` to `VALID_MODES` in `app.py`. Both modes are now accepted on `mayura:v1` instead of returning HTTP 422.
+- ✅ **Add `speaker_gender` parameter** — Optional `speaker_gender` form field (`Male` / `Female`). Passed through to the Sarvam translation call when provided; omitted when not supplied. Validated against `VALID_GENDERS`; returns HTTP 422 on invalid values.
+- ✅ **Add `numerals_format` parameter** — Optional `numerals_format` form field (`international` / `native`), defaulting to `international`. Always passed through to the Sarvam translation call. Validated against `VALID_NUMERALS_FORMATS`; returns HTTP 422 on invalid values.
+
 ---
 
 ## Short-Term (next sprint)
@@ -68,12 +76,6 @@ Also added: `INFO`-level request logging (IP, size, chars, langs, elapsed), stru
 ### Medium Priority
 
 - 📋 **CI pipeline** — Add a GitHub Actions workflow that runs `pytest` on every push and pull request. No live API key needed since tests are fully mocked.
-
-- 📋 **Fix mode allowlist** — Add `classic-colloquial` and `code-mixed` to `VALID_MODES` in `app.py`. Currently these are valid Sarvam API modes on `mayura:v1` but are rejected with HTTP 422. One-line fix in the allowlist; update tests accordingly.
-
-- 📋 **Add `speaker_gender` parameter** — Expose an optional `speaker_gender` form field (`Male` / `Female`) in the `/translate-doc` endpoint and pass it through to the Sarvam translation call. Improves output quality for gendered languages like Hindi and Tamil. Validate against the two accepted values; default to omitting the parameter if not provided.
-
-- 📋 **Add `numerals_format` parameter** — Expose an optional `numerals_format` form field (`international` / `native`) in the `/translate-doc` endpoint and pass it through to the Sarvam translation call. Useful for documents containing numbers, dates, or financial figures. Default to `international` if not provided.
 
 ---
 

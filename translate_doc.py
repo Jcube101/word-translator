@@ -44,7 +44,7 @@ def _chunk_text(text: str, max_chars: int) -> list[str]:
     return chunks
 
 
-def translate_doc(input_path, output_path, source_lang, target_lang, mode, client=None):
+def translate_doc(input_path, output_path, source_lang, target_lang, mode, speaker_gender=None, numerals_format="international", client=None):
     """
     Translate all paragraphs in *input_path* (.docx) and write the result to
     *output_path* (.docx).
@@ -73,12 +73,16 @@ def translate_doc(input_path, output_path, source_lang, target_lang, mode, clien
         if not buffer:
             return []
         text_block = "\n".join(buffer)
-        response = client.text.translate(
+        kwargs = dict(
             input=text_block,
             source_language_code=source_lang,
             target_language_code=target_lang,
             mode=mode,
+            numerals_format=numerals_format,
         )
+        if speaker_gender is not None:
+            kwargs["speaker_gender"] = speaker_gender
+        response = client.text.translate(**kwargs)
         result_lines = response.translated_text.split("\n")
         if len(result_lines) != len(buffer):
             logger.warning(

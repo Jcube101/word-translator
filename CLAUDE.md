@@ -94,6 +94,8 @@ Accepts a `.docx` file and returns a translated `.docx` file.
 | `source_lang` | string | Yes      | BCP-47 language code of the source document  |
 | `target_lang` | string | Yes      | BCP-47 language code for the output          |
 | `mode`        | string | No       | Translation mode; defaults to `"formal"`     |
+| `speaker_gender` | string | No    | Speaker gender (`Male` / `Female`); omitted if not provided. Improves output quality for gendered languages. |
+| `numerals_format` | string | No   | Numeral style (`international` / `native`); defaults to `"international"`. |
 
 **Response:** A `.docx` file download named `translated.docx`.
 
@@ -145,11 +147,12 @@ When `client=None` (production), a `SarvamAI` instance is created from the envir
 Six safeguards are applied in the endpoint, in cheapest-first order:
 
 1. **Language code validation** — `source_lang` and `target_lang` are checked against an allowlist of 13 Sarvam BCP-47 codes. HTTP 422 if invalid (zero I/O cost).
-2. **Mode validation** — `mode` must be `"formal"` or `"colloquial"`. HTTP 422 if invalid.
-3. **File size limit** — `len(contents) > MAX_FILE_SIZE_BYTES` → HTTP 413.
-4. **Document character limit** — total non-empty paragraph characters > `MAX_DOC_CHARS` → HTTP 422. Checked after writing to disk, before any Sarvam call. Directly caps API cost per request.
-5. **Request timeout** — `translate_doc` runs in a `ThreadPoolExecutor` wrapped with `asyncio.wait_for`. HTTP 504 on expiry.
-6. **Per-IP rate limit** — `slowapi` Limiter with `RATE_LIMIT_PER_MINUTE` per IP. HTTP 429 when exceeded. Memory-backed; **not shared across multiple uvicorn worker processes**.
+2. **Mode validation** — `mode` must be one of `"formal"`, `"colloquial"`, `"classic-colloquial"`, or `"code-mixed"`. HTTP 422 if invalid.
+3. **Gender validation** — `speaker_gender`, if provided, must be `"Male"` or `"Female"`. HTTP 422 if invalid.
+4. **File size limit** — `len(contents) > MAX_FILE_SIZE_BYTES` → HTTP 413.
+5. **Document character limit** — total non-empty paragraph characters > `MAX_DOC_CHARS` → HTTP 422. Checked after writing to disk, before any Sarvam call. Directly caps API cost per request.
+6. **Request timeout** — `translate_doc` runs in a `ThreadPoolExecutor` wrapped with `asyncio.wait_for`. HTTP 504 on expiry.
+7. **Per-IP rate limit** — `slowapi` Limiter with `RATE_LIMIT_PER_MINUTE` per IP. HTTP 429 when exceeded. Memory-backed; **not shared across multiple uvicorn worker processes**.
 
 All error responses include a `{"detail": "..."}` JSON body. Internal exception messages are never exposed.
 

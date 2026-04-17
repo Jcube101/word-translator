@@ -39,6 +39,8 @@ Content-Type: multipart/form-data
 | `source_lang` | string          | Yes      | —          | BCP-47 language code of the source document      |
 | `target_lang` | string          | Yes      | —          | BCP-47 language code for the output document     |
 | `mode`        | string          | No       | `"formal"` | Sarvam translation mode                          |
+| `speaker_gender` | string       | No       | —          | Speaker gender: `Male` or `Female`. Omitted from the API call if not supplied. Improves output quality for gendered languages (e.g. Hindi, Tamil). |
+| `numerals_format` | string      | No       | `"international"` | Numeral style: `international` (Western digits) or `native` (script-native digits). Always included in the Sarvam API call. |
 
 ### Language Code Format
 
@@ -65,6 +67,8 @@ All language codes use BCP-47 format. The server validates against an explicit a
 The server validates `mode` against an explicit allowlist and returns HTTP 422 for unrecognised values. Accepted values:
 - `"formal"` (default) — formal register
 - `"colloquial"` — conversational register
+- `"classic-colloquial"` — classical conversational register
+- `"code-mixed"` — mixed-script / code-switched output
 
 ### Response — Success
 
@@ -84,7 +88,9 @@ All error responses return a JSON body with a `"detail"` key.
 |---|---|
 | Missing required field (`file`, `source_lang`, `target_lang`) | `422 Unprocessable Entity` |
 | Invalid `source_lang` or `target_lang` (not in allowlist) | `422 Unprocessable Entity` |
-| Invalid `mode` (not `formal` or `colloquial`) | `422 Unprocessable Entity` |
+| Invalid `mode` (not in `formal`, `colloquial`, `classic-colloquial`, `code-mixed`) | `422 Unprocessable Entity` |
+| Invalid `speaker_gender` (not `Male` or `Female`) | `422 Unprocessable Entity` |
+| Invalid `numerals_format` (not `international` or `native`) | `422 Unprocessable Entity` |
 | Document too large (total chars > `MAX_DOC_CHARS`) | `422 Unprocessable Entity` |
 | File exceeds `MAX_FILE_SIZE_MB` | `413 Request Entity Too Large` |
 | Per-IP rate limit exceeded | `429 Too Many Requests` |

@@ -38,7 +38,9 @@ VALID_LANG_CODES = {
     "en-IN", "hi-IN", "ta-IN", "te-IN", "kn-IN", "ml-IN",
     "mr-IN", "gu-IN", "bn-IN", "pa-IN", "as-IN", "od-IN", "ur-IN",
 }
-VALID_MODES = {"formal", "colloquial"}
+VALID_MODES = {"formal", "colloquial", "classic-colloquial", "code-mixed"}
+VALID_GENDERS = {"Male", "Female"}
+VALID_NUMERALS_FORMATS = {"international", "native"}
 
 _executor = ThreadPoolExecutor()
 
@@ -82,6 +84,8 @@ async def translate_document(
     source_lang: str = Form(...),
     target_lang: str = Form(...),
     mode: str = Form("formal"),
+    speaker_gender: str = Form(None),
+    numerals_format: str = Form("international"),
 ):
     # 1. Validate language codes and mode — zero I/O cost, fail fast
     if source_lang not in VALID_LANG_CODES:
@@ -100,6 +104,16 @@ async def translate_document(
         raise HTTPException(
             status_code=422,
             detail=f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(VALID_MODES))}",
+        )
+    if speaker_gender is not None and speaker_gender not in VALID_GENDERS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid speaker_gender '{speaker_gender}'. Must be one of: {', '.join(sorted(VALID_GENDERS))}",
+        )
+    if numerals_format not in VALID_NUMERALS_FORMATS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid numerals_format '{numerals_format}'. Must be one of: {', '.join(sorted(VALID_NUMERALS_FORMATS))}",
         )
 
     # 2. Read file and check size
@@ -150,6 +164,8 @@ async def translate_document(
                     source_lang=source_lang,
                     target_lang=target_lang,
                     mode=mode,
+                    speaker_gender=speaker_gender,
+                    numerals_format=numerals_format,
                 ),
             ),
             timeout=REQUEST_TIMEOUT_SECONDS,
