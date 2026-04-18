@@ -36,13 +36,13 @@ REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "120"))
 
 VALID_LANG_CODES_MAYURA = {
     "en-IN", "hi-IN", "ta-IN", "te-IN", "kn-IN", "ml-IN",
-    "mr-IN", "gu-IN", "bn-IN", "pa-IN", "as-IN", "od-IN", "ur-IN",
+    "mr-IN", "gu-IN", "bn-IN", "pa-IN", "od-IN",
 }
 VALID_LANG_CODES_SARVAM = VALID_LANG_CODES_MAYURA | {
-    "brx-IN", "doi-IN", "kok-IN", "ks-IN", "mai-IN",
-    "mni-IN", "ne-IN", "sa-IN", "sat-IN", "sd-IN",
+    "as-IN", "ur-IN", "brx-IN", "doi-IN", "kok-IN", "ks-IN",
+    "mai-IN", "mni-IN", "ne-IN", "sa-IN", "sat-IN", "sd-IN",
 }
-VALID_LANG_CODES = VALID_LANG_CODES_MAYURA  # backwards-compat alias
+VALID_LANG_CODES = VALID_LANG_CODES_MAYURA  # alias for backward compatibility
 VALID_MODES = {"formal", "colloquial", "classic-colloquial", "code-mixed"}
 VALID_MODELS = {"mayura:v1", "sarvam-translate:v1"}
 VALID_GENDERS = {"Male", "Female"}

@@ -147,8 +147,8 @@ When `client=None` (production), a `SarvamAI` instance is created from the envir
 
 Two language code sets control which BCP-47 codes are accepted, selected by `model`:
 
-- **`VALID_LANG_CODES_MAYURA`** (13 codes, default for `mayura:v1`): `as-IN`, `bn-IN`, `en-IN`, `gu-IN`, `hi-IN`, `kn-IN`, `ml-IN`, `mr-IN`, `od-IN`, `pa-IN`, `ta-IN`, `te-IN`, `ur-IN`
-- **`VALID_LANG_CODES_SARVAM`** (23 codes, for `sarvam-translate:v1`): all of the above plus `brx-IN`, `doi-IN`, `kok-IN`, `ks-IN`, `mai-IN`, `mni-IN`, `ne-IN`, `sa-IN`, `sat-IN`, `sd-IN`
+- **`VALID_LANG_CODES_MAYURA`** (11 codes, default for `mayura:v1`): `bn-IN`, `en-IN`, `gu-IN`, `hi-IN`, `kn-IN`, `ml-IN`, `mr-IN`, `od-IN`, `pa-IN`, `ta-IN`, `te-IN`
+- **`VALID_LANG_CODES_SARVAM`** (23 codes, for `sarvam-translate:v1`): all of the above plus `as-IN`, `ur-IN`, `brx-IN`, `doi-IN`, `kok-IN`, `ks-IN`, `mai-IN`, `mni-IN`, `ne-IN`, `sa-IN`, `sat-IN`, `sd-IN`
 
 `VALID_LANG_CODES` is kept as an alias for `VALID_LANG_CODES_MAYURA` for backwards compatibility.
 

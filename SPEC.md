@@ -47,7 +47,7 @@ Content-Type: multipart/form-data
 
 All language codes use BCP-47 format. The accepted set depends on the selected `model`.
 
-**`mayura:v1` language codes** (13 codes, default):
+**`mayura:v1` language codes** (11 codes, default):
 
 | Code    | Language        |
 |---------|-----------------|
@@ -61,24 +61,24 @@ All language codes use BCP-47 format. The accepted set depends on the selected `
 | `gu-IN` | Gujarati        |
 | `bn-IN` | Bengali         |
 | `pa-IN` | Punjabi         |
-| `as-IN` | Assamese        |
 | `od-IN` | Odia            |
-| `ur-IN` | Urdu            |
 
-**`sarvam-translate:v1` additional codes** (10 more, 23 total):
+**`sarvam-translate:v1` additional codes** (12 more, 23 total):
 
-| Code     | Language   |
-|----------|------------|
-| `brx-IN` | Bodo       |
-| `doi-IN` | Dogri      |
-| `kok-IN` | Konkani    |
-| `ks-IN`  | Kashmiri   |
-| `mai-IN` | Maithili   |
-| `mni-IN` | Manipuri   |
-| `ne-IN`  | Nepali     |
-| `sa-IN`  | Sanskrit   |
-| `sat-IN` | Santali    |
-| `sd-IN`  | Sindhi     |
+| Code     | Language        |
+|----------|-----------------|
+| `as-IN`  | Assamese        |
+| `ur-IN`  | Urdu            |
+| `brx-IN` | Bodo            |
+| `doi-IN` | Dogri           |
+| `kok-IN` | Konkani         |
+| `ks-IN`  | Kashmiri        |
+| `mai-IN` | Maithili        |
+| `mni-IN` | Manipuri        |
+| `ne-IN`  | Nepali          |
+| `sa-IN`  | Sanskrit        |
+| `sat-IN` | Santali         |
+| `sd-IN`  | Sindhi          |
 
 ### Translation Mode
 
