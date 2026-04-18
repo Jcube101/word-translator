@@ -34,11 +34,17 @@ MAX_FILE_SIZE_BYTES = int(float(os.getenv("MAX_FILE_SIZE_MB", "5")) * 1024 * 102
 MAX_DOC_CHARS = int(os.getenv("MAX_DOC_CHARS", "50000"))
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "120"))
 
-VALID_LANG_CODES = {
+VALID_LANG_CODES_MAYURA = {
     "en-IN", "hi-IN", "ta-IN", "te-IN", "kn-IN", "ml-IN",
     "mr-IN", "gu-IN", "bn-IN", "pa-IN", "as-IN", "od-IN", "ur-IN",
 }
+VALID_LANG_CODES_SARVAM = VALID_LANG_CODES_MAYURA | {
+    "brx-IN", "doi-IN", "kok-IN", "ks-IN", "mai-IN",
+    "mni-IN", "ne-IN", "sa-IN", "sat-IN", "sd-IN",
+}
+VALID_LANG_CODES = VALID_LANG_CODES_MAYURA  # backwards-compat alias
 VALID_MODES = {"formal", "colloquial", "classic-colloquial", "code-mixed"}
+VALID_MODELS = {"mayura:v1", "sarvam-translate:v1"}
 VALID_GENDERS = {"Male", "Female"}
 VALID_NUMERALS_FORMATS = {"international", "native"}
 
@@ -84,26 +90,38 @@ async def translate_document(
     source_lang: str = Form(...),
     target_lang: str = Form(...),
     mode: str = Form("formal"),
+    model: str = Form("mayura:v1"),
     speaker_gender: str = Form(None),
     numerals_format: str = Form("international"),
 ):
-    # 1. Validate language codes and mode — zero I/O cost, fail fast
-    if source_lang not in VALID_LANG_CODES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unsupported source_lang '{source_lang}'. "
-                   f"Accepted values: {sorted(VALID_LANG_CODES)}",
-        )
-    if target_lang not in VALID_LANG_CODES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unsupported target_lang '{target_lang}'. "
-                   f"Accepted values: {sorted(VALID_LANG_CODES)}",
-        )
+    # 1. Validate cheap scalar fields before any I/O
     if mode not in VALID_MODES:
         raise HTTPException(
             status_code=422,
             detail=f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(VALID_MODES))}",
+        )
+    if model not in VALID_MODELS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid model '{model}'. Must be one of: {', '.join(sorted(VALID_MODELS))}",
+        )
+    active_lang_codes = VALID_LANG_CODES_SARVAM if model == "sarvam-translate:v1" else VALID_LANG_CODES_MAYURA
+    if source_lang not in active_lang_codes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported source_lang '{source_lang}' for model '{model}'. "
+                   f"Accepted values: {sorted(active_lang_codes)}",
+        )
+    if target_lang not in active_lang_codes:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported target_lang '{target_lang}' for model '{model}'. "
+                   f"Accepted values: {sorted(active_lang_codes)}",
+        )
+    if model == "sarvam-translate:v1" and mode != "formal":
+        raise HTTPException(
+            status_code=422,
+            detail="sarvam-translate:v1 only supports formal mode",
         )
     if speaker_gender is not None and speaker_gender not in VALID_GENDERS:
         raise HTTPException(
@@ -164,6 +182,7 @@ async def translate_document(
                     source_lang=source_lang,
                     target_lang=target_lang,
                     mode=mode,
+                    model=model,
                     speaker_gender=speaker_gender,
                     numerals_format=numerals_format,
                 ),

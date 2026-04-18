@@ -366,6 +366,79 @@ class TestLanguageAndModeValidation:
                 )
             assert response.status_code == 200, f"Expected 200 for target_lang={code}"
 
+    def test_mayura_model_is_accepted(self):
+        """model=mayura:v1 passes validation."""
+        with patch("app.translate_doc", side_effect=_fake_translate):
+            response = client.post(
+                "/translate-doc",
+                files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+                data={"source_lang": "en-IN", "target_lang": "hi-IN", "model": "mayura:v1"},
+            )
+        assert response.status_code == 200
+
+    def test_sarvam_translate_model_is_accepted(self):
+        """model=sarvam-translate:v1 with formal mode passes validation."""
+        with patch("app.translate_doc", side_effect=_fake_translate):
+            response = client.post(
+                "/translate-doc",
+                files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+                data={"source_lang": "en-IN", "target_lang": "hi-IN", "model": "sarvam-translate:v1"},
+            )
+        assert response.status_code == 200
+
+    def test_invalid_model_returns_422(self):
+        """An unrecognised model returns HTTP 422."""
+        response = client.post(
+            "/translate-doc",
+            files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+            data={"source_lang": "en-IN", "target_lang": "hi-IN", "model": "fake-model:v9"},
+        )
+        assert response.status_code == 422
+        assert "model" in response.json()["detail"]
+
+    def test_sarvam_translate_colloquial_returns_422(self):
+        """sarvam-translate:v1 + colloquial mode returns HTTP 422 with the expected message."""
+        response = client.post(
+            "/translate-doc",
+            files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+            data={"source_lang": "en-IN", "target_lang": "hi-IN",
+                  "model": "sarvam-translate:v1", "mode": "colloquial"},
+        )
+        assert response.status_code == 422
+        assert "sarvam-translate:v1 only supports formal mode" in response.json()["detail"]
+
+    def test_sarvam_translate_classic_colloquial_returns_422(self):
+        """sarvam-translate:v1 + classic-colloquial mode returns HTTP 422."""
+        response = client.post(
+            "/translate-doc",
+            files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+            data={"source_lang": "en-IN", "target_lang": "hi-IN",
+                  "model": "sarvam-translate:v1", "mode": "classic-colloquial"},
+        )
+        assert response.status_code == 422
+        assert "sarvam-translate:v1 only supports formal mode" in response.json()["detail"]
+
+    def test_sarvam_translate_with_extended_lang_accepted(self):
+        """sarvam-translate:v1 + formal + a sarvam-only lang code (ne-IN) returns 200."""
+        with patch("app.translate_doc", side_effect=_fake_translate):
+            response = client.post(
+                "/translate-doc",
+                files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+                data={"source_lang": "en-IN", "target_lang": "ne-IN",
+                      "model": "sarvam-translate:v1"},
+            )
+        assert response.status_code == 200
+
+    def test_mayura_with_extended_lang_returns_422(self):
+        """mayura:v1 + a sarvam-only lang code (ne-IN) returns HTTP 422."""
+        response = client.post(
+            "/translate-doc",
+            files={"file": ("test.docx", _make_docx_bytes(["Hello"]), DOCX_MIME)},
+            data={"source_lang": "en-IN", "target_lang": "ne-IN", "model": "mayura:v1"},
+        )
+        assert response.status_code == 422
+        assert "target_lang" in response.json()["detail"]
+
 
 # ---------------------------------------------------------------------------
 # File size limit tests

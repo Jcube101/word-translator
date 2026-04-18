@@ -44,7 +44,7 @@ def _chunk_text(text: str, max_chars: int) -> list[str]:
     return chunks
 
 
-def translate_doc(input_path, output_path, source_lang, target_lang, mode, speaker_gender=None, numerals_format="international", client=None):
+def translate_doc(input_path, output_path, source_lang, target_lang, mode, model="mayura:v1", speaker_gender=None, numerals_format="international", client=None):
     """
     Translate all paragraphs in *input_path* (.docx) and write the result to
     *output_path* (.docx).
@@ -56,6 +56,7 @@ def translate_doc(input_path, output_path, source_lang, target_lang, mode, speak
     source_lang : str  BCP-47 language code of the source text (e.g. "en-IN").
     target_lang : str  BCP-47 language code for the output (e.g. "hi-IN").
     mode        : str  Sarvam translation mode (e.g. "formal", "colloquial").
+    model       : str  Sarvam model identifier (e.g. "mayura:v1", "sarvam-translate:v1").
     client      : SarvamAI | None
                        Optional pre-built API client; one is created from the
                        environment when None.  Pass a mock here in tests.
@@ -78,6 +79,7 @@ def translate_doc(input_path, output_path, source_lang, target_lang, mode, speak
             source_language_code=source_lang,
             target_language_code=target_lang,
             mode=mode,
+            model=model,
             numerals_format=numerals_format,
         )
         if speaker_gender is not None:

@@ -39,12 +39,15 @@ Content-Type: multipart/form-data
 | `source_lang` | string          | Yes      | —          | BCP-47 language code of the source document      |
 | `target_lang` | string          | Yes      | —          | BCP-47 language code for the output document     |
 | `mode`        | string          | No       | `"formal"` | Sarvam translation mode                          |
+| `model`       | string          | No       | `"mayura:v1"` | Sarvam model: `mayura:v1` or `sarvam-translate:v1`. Determines the active language set. `sarvam-translate:v1` only accepts `formal` mode. |
 | `speaker_gender` | string       | No       | —          | Speaker gender: `Male` or `Female`. Omitted from the API call if not supplied. Improves output quality for gendered languages (e.g. Hindi, Tamil). |
 | `numerals_format` | string      | No       | `"international"` | Numeral style: `international` (Western digits) or `native` (script-native digits). Always included in the Sarvam API call. |
 
 ### Language Code Format
 
-All language codes use BCP-47 format. The server validates against an explicit allowlist and returns HTTP 422 for unrecognised codes. Accepted values:
+All language codes use BCP-47 format. The accepted set depends on the selected `model`.
+
+**`mayura:v1` language codes** (13 codes, default):
 
 | Code    | Language        |
 |---------|-----------------|
@@ -62,6 +65,21 @@ All language codes use BCP-47 format. The server validates against an explicit a
 | `od-IN` | Odia            |
 | `ur-IN` | Urdu            |
 
+**`sarvam-translate:v1` additional codes** (10 more, 23 total):
+
+| Code     | Language   |
+|----------|------------|
+| `brx-IN` | Bodo       |
+| `doi-IN` | Dogri      |
+| `kok-IN` | Konkani    |
+| `ks-IN`  | Kashmiri   |
+| `mai-IN` | Maithili   |
+| `mni-IN` | Manipuri   |
+| `ne-IN`  | Nepali     |
+| `sa-IN`  | Sanskrit   |
+| `sat-IN` | Santali    |
+| `sd-IN`  | Sindhi     |
+
 ### Translation Mode
 
 The server validates `mode` against an explicit allowlist and returns HTTP 422 for unrecognised values. Accepted values:
@@ -69,6 +87,8 @@ The server validates `mode` against an explicit allowlist and returns HTTP 422 f
 - `"colloquial"` — conversational register
 - `"classic-colloquial"` — classical conversational register
 - `"code-mixed"` — mixed-script / code-switched output
+
+**Constraint:** `sarvam-translate:v1` only supports `"formal"` mode. Combining it with any other mode returns HTTP 422.
 
 ### Response — Success
 
@@ -87,8 +107,10 @@ All error responses return a JSON body with a `"detail"` key.
 | Condition | HTTP Status |
 |---|---|
 | Missing required field (`file`, `source_lang`, `target_lang`) | `422 Unprocessable Entity` |
-| Invalid `source_lang` or `target_lang` (not in allowlist) | `422 Unprocessable Entity` |
 | Invalid `mode` (not in `formal`, `colloquial`, `classic-colloquial`, `code-mixed`) | `422 Unprocessable Entity` |
+| Invalid `model` (not `mayura:v1` or `sarvam-translate:v1`) | `422 Unprocessable Entity` |
+| Invalid `source_lang` or `target_lang` (not in the active model's allowlist) | `422 Unprocessable Entity` |
+| `sarvam-translate:v1` combined with a non-formal mode | `422 Unprocessable Entity` |
 | Invalid `speaker_gender` (not `Male` or `Female`) | `422 Unprocessable Entity` |
 | Invalid `numerals_format` (not `international` or `native`) | `422 Unprocessable Entity` |
 | Document too large (total chars > `MAX_DOC_CHARS`) | `422 Unprocessable Entity` |

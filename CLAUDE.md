@@ -94,6 +94,7 @@ Accepts a `.docx` file and returns a translated `.docx` file.
 | `source_lang` | string | Yes      | BCP-47 language code of the source document  |
 | `target_lang` | string | Yes      | BCP-47 language code for the output          |
 | `mode`        | string | No       | Translation mode; defaults to `"formal"`     |
+| `model`       | string | No       | Sarvam model (`mayura:v1` / `sarvam-translate:v1`); defaults to `"mayura:v1"`. `sarvam-translate:v1` only accepts `formal` mode and expands the language set to all 22 scheduled languages. |
 | `speaker_gender` | string | No    | Speaker gender (`Male` / `Female`); omitted if not provided. Improves output quality for gendered languages. |
 | `numerals_format` | string | No   | Numeral style (`international` / `native`); defaults to `"international"`. |
 
@@ -137,22 +138,34 @@ Documents are translated paragraph-by-paragraph with a **900-character buffer li
 `translate_doc()` accepts an optional `client` parameter:
 
 ```python
-def translate_doc(input_path, output_path, source_lang, target_lang, mode, client=None):
+def translate_doc(input_path, output_path, source_lang, target_lang, mode, model="mayura:v1", speaker_gender=None, numerals_format="international", client=None):
 ```
 
 When `client=None` (production), a `SarvamAI` instance is created from the environment key. In tests, pass a `MagicMock` to avoid any network calls or key requirements.
 
+### Language Code Sets (`app.py`)
+
+Two language code sets control which BCP-47 codes are accepted, selected by `model`:
+
+- **`VALID_LANG_CODES_MAYURA`** (13 codes, default for `mayura:v1`): `as-IN`, `bn-IN`, `en-IN`, `gu-IN`, `hi-IN`, `kn-IN`, `ml-IN`, `mr-IN`, `od-IN`, `pa-IN`, `ta-IN`, `te-IN`, `ur-IN`
+- **`VALID_LANG_CODES_SARVAM`** (23 codes, for `sarvam-translate:v1`): all of the above plus `brx-IN`, `doi-IN`, `kok-IN`, `ks-IN`, `mai-IN`, `mni-IN`, `ne-IN`, `sa-IN`, `sat-IN`, `sd-IN`
+
+`VALID_LANG_CODES` is kept as an alias for `VALID_LANG_CODES_MAYURA` for backwards compatibility.
+
 ### Abuse-Protection Safeguards (`app.py`)
 
-Six safeguards are applied in the endpoint, in cheapest-first order:
+Nine safeguards are applied in the endpoint, in cheapest-first order:
 
-1. **Language code validation** — `source_lang` and `target_lang` are checked against an allowlist of 13 Sarvam BCP-47 codes. HTTP 422 if invalid (zero I/O cost).
-2. **Mode validation** — `mode` must be one of `"formal"`, `"colloquial"`, `"classic-colloquial"`, or `"code-mixed"`. HTTP 422 if invalid.
-3. **Gender validation** — `speaker_gender`, if provided, must be `"Male"` or `"Female"`. HTTP 422 if invalid.
-4. **File size limit** — `len(contents) > MAX_FILE_SIZE_BYTES` → HTTP 413.
-5. **Document character limit** — total non-empty paragraph characters > `MAX_DOC_CHARS` → HTTP 422. Checked after writing to disk, before any Sarvam call. Directly caps API cost per request.
-6. **Request timeout** — `translate_doc` runs in a `ThreadPoolExecutor` wrapped with `asyncio.wait_for`. HTTP 504 on expiry.
-7. **Per-IP rate limit** — `slowapi` Limiter with `RATE_LIMIT_PER_MINUTE` per IP. HTTP 429 when exceeded. Memory-backed; **not shared across multiple uvicorn worker processes**.
+1. **Mode validation** — `mode` must be one of `"formal"`, `"colloquial"`, `"classic-colloquial"`, or `"code-mixed"`. HTTP 422 if invalid.
+2. **Model validation** — `model` must be `"mayura:v1"` or `"sarvam-translate:v1"`. HTTP 422 if invalid.
+3. **Language code validation** — `source_lang` and `target_lang` are checked against the active language set for the selected model. HTTP 422 if invalid.
+4. **Model+mode cross-check** — `sarvam-translate:v1` only accepts `formal` mode. HTTP 422 if a non-formal mode is combined with this model.
+5. **Gender validation** — `speaker_gender`, if provided, must be `"Male"` or `"Female"`. HTTP 422 if invalid.
+6. **Numerals format validation** — `numerals_format` must be `"international"` or `"native"`. HTTP 422 if invalid.
+7. **File size limit** — `len(contents) > MAX_FILE_SIZE_BYTES` → HTTP 413.
+8. **Document character limit** — total non-empty paragraph characters > `MAX_DOC_CHARS` → HTTP 422. Checked after writing to disk, before any Sarvam call. Directly caps API cost per request.
+9. **Request timeout** — `translate_doc` runs in a `ThreadPoolExecutor` wrapped with `asyncio.wait_for`. HTTP 504 on expiry.
+10. **Per-IP rate limit** — `slowapi` Limiter with `RATE_LIMIT_PER_MINUTE` per IP. HTTP 429 when exceeded. Memory-backed; **not shared across multiple uvicorn worker processes**.
 
 All error responses include a `{"detail": "..."}` JSON body. Internal exception messages are never exposed.
 

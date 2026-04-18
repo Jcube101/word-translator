@@ -70,13 +70,15 @@ Extended the `/translate-doc` endpoint and `translate_doc()` with three new para
 - ✅ **Pin dependency versions** — Replaced unpinned `requirements.txt` with fully pinned versions from `pip freeze`. Prevents silent breakage from upstream updates.
 - ✅ **CI pipeline** — Added `.github/workflows/ci.yml`: triggers on every push and pull request, runs on `ubuntu-latest` with Python 3.11, installs pinned dependencies, and runs `pytest -v`. No API key required — all tests are fully mocked.
 
+### Model Selection (completed 2026-04-18)
+
+- ✅ **Add `sarvam-translate:v1` model selection** — Exposed an optional `model` form field (`mayura:v1` default / `sarvam-translate:v1`). Added `VALID_LANG_CODES_SARVAM` (23 codes) alongside `VALID_LANG_CODES_MAYURA` (13 codes); active set is chosen per request based on model. `sarvam-translate:v1` is validated to only accept `formal` mode. `model` is forwarded through `translate_doc()` to every Sarvam API call. 9 new tests (67 total).
+
 ---
 
 ## Medium-Term (1–2 months)
 
 ### API Capabilities
-
-- 📋 **Add `sarvam-translate:v1` model selection** — Expose an optional `model` form field in `/translate-doc` accepting `mayura:v1` (default) or `sarvam-translate:v1`. The new model supports all 22 scheduled languages of India (11 more than current: Bodo, Dogri, Konkani, Kashmiri, Maithili, Manipuri, Nepali, Sanskrit, Santali, Sindhi, and expanded Assamese/Urdu coverage). Constraint: `sarvam-translate:v1` only supports `formal` mode — validate this combination and return HTTP 422 if a colloquial mode is requested with that model. Update the language allowlist to include the 11 new codes when this model is selected.
 
 - 📋 **TTS endpoint (`POST /synthesize-doc`)** — New endpoint that accepts a `.docx` file and a target language code, extracts paragraph text, and sends it to the Sarvam `bulbul:v3` TTS API. Returns an MP3 audio file of the document read aloud. Supports voice selection from the `bulbul:v3` speaker list (default: `shubh`). Apply the same abuse-protection pattern as `/translate-doc`: file size limit, character cap, rate limiting, timeout. Can be used standalone or chained after a translation.
 

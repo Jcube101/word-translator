@@ -260,6 +260,28 @@ class TestTranslateDocBatching:
         call_kwargs = client.text.translate.call_args.kwargs
         assert call_kwargs.get("numerals_format") == "international"
 
+    def test_model_forwarded_to_api_call(self, tmp_path):
+        """model is included in every Sarvam API call."""
+        input_path = _make_docx(["Hello"])
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", model="sarvam-translate:v1", client=client)
+
+        call_kwargs = client.text.translate.call_args.kwargs
+        assert call_kwargs.get("model") == "sarvam-translate:v1"
+
+    def test_default_model_is_mayura(self, tmp_path):
+        """model defaults to 'mayura:v1' when not specified."""
+        input_path = _make_docx(["Hello"])
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        call_kwargs = client.text.translate.call_args.kwargs
+        assert call_kwargs.get("model") == "mayura:v1"
+
     def test_no_api_key_raises_without_client(self, tmp_path, monkeypatch):
         """When no client is provided and SARVAM_API_KEY is absent, an exception is raised."""
         monkeypatch.delenv("SARVAM_API_KEY", raising=False)
