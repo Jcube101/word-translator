@@ -131,7 +131,7 @@ Documents are translated paragraph-by-paragraph with a **900-character buffer li
 **Important caveats:**
 - Paragraph **formatting** (bold, italic, fonts, styles) is **not preserved** — all output paragraphs use the default document style.
 - The output paragraph count may differ from input if the API merges or splits lines on translation, or if long paragraphs are chunked.
-- Only the `.paragraphs` property of the document is processed; tables, headers, footers, and text boxes are **not translated**.
+- Paragraphs, table cells, and section headers/footers are translated. Text boxes and shapes remain out of scope.
 
 ### Dependency Injection (`translate_doc.py`)
 

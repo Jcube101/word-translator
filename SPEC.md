@@ -215,10 +215,14 @@ All output paragraphs are added to a fresh `Document()` using `add_paragraph()` 
 
 ### 4.7 Content Coverage
 
-Only `doc.paragraphs` is processed. The following document elements are **not translated**:
+The following document elements are **translated**:
 
-- Tables (cells, headers, footers of tables)
-- Headers and footers
+- Top-level paragraphs (`doc.paragraphs`)
+- Table cell paragraphs (`doc.tables[*].rows[*].cells[*].paragraphs`) — empty cells are skipped
+- Section header and footer paragraphs — applies to the default (first) section only; a `WARNING` is logged if the source document contains more than one section
+
+The following elements are **not translated**:
+
 - Text boxes and shapes
 - Comments and annotations
 - Track-changes content

@@ -290,3 +290,89 @@ class TestTranslateDocBatching:
 
         with pytest.raises(Exception, match="SARVAM_API_KEY not set"):
             translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal")
+
+
+# ---------------------------------------------------------------------------
+# Document coverage tests — tables, headers, footers
+# ---------------------------------------------------------------------------
+
+def _make_docx_with_table(cell_texts: list[list[str]]) -> str:
+    """Create a temporary .docx with a single table; return its path."""
+    tmpdir = tempfile.mkdtemp()
+    path = os.path.join(tmpdir, "input.docx")
+    doc = Document()
+    rows = len(cell_texts)
+    cols = max(len(row) for row in cell_texts) if cell_texts else 1
+    table = doc.add_table(rows=rows, cols=cols)
+    for r, row in enumerate(cell_texts):
+        for c, text in enumerate(row):
+            if text:
+                table.cell(r, c).paragraphs[0].add_run(text)
+    doc.save(path)
+    return path
+
+
+def _make_docx_with_header(header_text: str) -> str:
+    """Create a temporary .docx with a header paragraph; return its path."""
+    tmpdir = tempfile.mkdtemp()
+    path = os.path.join(tmpdir, "input.docx")
+    doc = Document()
+    doc.sections[0].header.paragraphs[0].add_run(header_text)
+    doc.save(path)
+    return path
+
+
+def _make_docx_with_footer(footer_text: str) -> str:
+    """Create a temporary .docx with a footer paragraph; return its path."""
+    tmpdir = tempfile.mkdtemp()
+    path = os.path.join(tmpdir, "input.docx")
+    doc = Document()
+    doc.sections[0].footer.paragraphs[0].add_run(footer_text)
+    doc.save(path)
+    return path
+
+
+class TestDocumentCoverage:
+
+    def test_table_cell_text_is_translated(self, tmp_path):
+        """Non-empty table cell text is passed to the Sarvam API."""
+        input_path = _make_docx_with_table([["Hello", "World"]])
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("Translated")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        all_inputs = [call.kwargs.get("input", "") for call in client.text.translate.call_args_list]
+        assert any("Hello" in inp for inp in all_inputs)
+
+    def test_empty_table_cells_not_translated(self, tmp_path):
+        """Empty table cells do not trigger an API call."""
+        input_path = _make_docx_with_table([["", ""]])
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        client.text.translate.assert_not_called()
+
+    def test_header_text_is_translated(self, tmp_path):
+        """Text in the document header is passed to the Sarvam API."""
+        input_path = _make_docx_with_header("Page Header")
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("Translated Header")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        all_inputs = [call.kwargs.get("input", "") for call in client.text.translate.call_args_list]
+        assert any("Page Header" in inp for inp in all_inputs)
+
+    def test_footer_text_is_translated(self, tmp_path):
+        """Text in the document footer is passed to the Sarvam API."""
+        input_path = _make_docx_with_footer("Page Footer")
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("Translated Footer")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        all_inputs = [call.kwargs.get("input", "") for call in client.text.translate.call_args_list]
+        assert any("Page Footer" in inp for inp in all_inputs)

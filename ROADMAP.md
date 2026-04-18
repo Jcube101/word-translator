@@ -70,6 +70,11 @@ Extended the `/translate-doc` endpoint and `translate_doc()` with three new para
 - ✅ **Pin dependency versions** — Replaced unpinned `requirements.txt` with fully pinned versions from `pip freeze`. Prevents silent breakage from upstream updates.
 - ✅ **CI pipeline** — Added `.github/workflows/ci.yml`: triggers on every push and pull request, runs on `ubuntu-latest` with Python 3.11, installs pinned dependencies, and runs `pytest -v`. No API key required — all tests are fully mocked.
 
+### Document Coverage (completed 2026-04-18)
+
+- ✅ **Table translation** — `translate_doc.py` now iterates over `doc.tables`, translates cell text using the shared `translate_batch` helper, and writes translated content into the output document's table cells.
+- ✅ **Header and footer translation** — Section headers and footers are now translated for each section in the document.
+
 ### Model Selection (completed 2026-04-18)
 
 - ✅ **Add `sarvam-translate:v1` model selection** — Exposed an optional `model` form field (`mayura:v1` default / `sarvam-translate:v1`). Added `VALID_LANG_CODES_SARVAM` (23 codes) alongside `VALID_LANG_CODES_MAYURA` (13 codes); active set is chosen per request based on model. `sarvam-translate:v1` is validated to only accept `formal` mode. `model` is forwarded through `translate_doc()` to every Sarvam API call. 9 new tests (67 total).
@@ -91,12 +96,6 @@ Extended the `/translate-doc` endpoint and `translate_doc()` with three new para
 - 📋 **Sentence-boundary chunking** — Replace the current whitespace-split chunking for long paragraphs with a sentence-tokeniser (e.g. `nltk.sent_tokenize`). This preserves sentence context across chunk boundaries and improves translation coherence.
 
 - 💡 **Context-window stitching** — Send a small overlap of the previous batch's text as context to the Sarvam API for each subsequent request. May improve coherence at batch boundaries.
-
-### Document Coverage
-
-- 📋 **Table translation** — Extend `translate_doc.py` to iterate over `doc.tables` and translate cell text in addition to paragraphs.
-
-- 💡 **Header and footer translation** — Process `doc.sections[i].header` and `.footer` paragraph collections.
 
 ### Formatting
 
