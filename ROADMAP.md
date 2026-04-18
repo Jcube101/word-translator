@@ -80,7 +80,11 @@ Extended the `/translate-doc` endpoint and `translate_doc()` with three new para
 
 ### API Capabilities
 
-- 📋 **TTS endpoint (`POST /synthesize-doc`)** — New endpoint that accepts a `.docx` file and a target language code, extracts paragraph text, and sends it to the Sarvam `bulbul:v3` TTS API. Returns an MP3 audio file of the document read aloud. Supports voice selection from the `bulbul:v3` speaker list (default: `shubh`). Apply the same abuse-protection pattern as `/translate-doc`: file size limit, character cap, rate limiting, timeout. Can be used standalone or chained after a translation.
+- 📋 **TTS endpoint (`POST /synthesize-doc`)** — New endpoint that accepts a `.docx` file and a target language code, extracts paragraph text, and sends it to the Sarvam `bulbul:v3` TTS API. Returns an MP3 audio file of the document read aloud. Open decisions to resolve before implementation:
+  - **Document scope**: Support full documents (requires chunking + audio stitching since bulbul:v3 max is 2500 chars/request) or cap at short documents for v1?
+  - **Frontend placement**: Add "Read aloud" to existing `WordTranslator.tsx` after a successful translation, or a separate tool page?
+  - **Voice selection**: Expose the 30+ bulbul:v3 voices to the user, or default to `shubh` and keep UI clean?
+  - **Chaining**: Support standalone `.docx` → MP3 upload AND a "Read translated doc aloud" button post-translation, or one mode only?
 
 ### Translation Quality
 
