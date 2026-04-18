@@ -211,7 +211,7 @@ A `WARNING`-level log message is emitted when the submitted and returned paragra
 
 ### 4.6 Formatting
 
-All output paragraphs are added to a fresh `Document()` using `add_paragraph()` with the default style. **No formatting is preserved**: bold, italic, font size, font family, heading levels, list styles, and all other formatting is stripped.
+Output paragraphs preserve the source paragraph's **style name** (e.g. Heading 1, Normal) and **alignment**. Run-level formatting (bold, italic, font size, font family) is not preserved — translated text is written as plain runs. If a source style does not exist in the output document, the default style is used silently.
 
 ### 4.7 Content Coverage
 

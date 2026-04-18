@@ -79,6 +79,16 @@ Extended the `/translate-doc` endpoint and `translate_doc()` with three new para
 
 - ✅ **Add `sarvam-translate:v1` model selection** — Exposed an optional `model` form field (`mayura:v1` default / `sarvam-translate:v1`). Added `VALID_LANG_CODES_SARVAM` (23 codes) alongside `VALID_LANG_CODES_MAYURA` (13 codes); active set is chosen per request based on model. `sarvam-translate:v1` is validated to only accept `formal` mode. `model` is forwarded through `translate_doc()` to every Sarvam API call. 9 new tests (67 total).
 
+### Formatting (completed 2026-04-18)
+
+- ✅ **Paragraph-level formatting preservation** — Output paragraphs now inherit the source paragraph's style name (e.g. Heading 1, Normal) and alignment. Run-level formatting (bold, italic, font size) is explicitly out of scope — translation changes character counts unpredictably, making run boundary mapping unreliable. Paragraph-level formatting covers the most visually significant elements (headings, alignment) with zero risk of misalignment.
+
+### Developer Experience & Reliability (completed 2026-04-18)
+
+- ✅ **Retry with exponential backoff** — Sarvam API calls inside `translate_batch` are now wrapped with `tenacity`: 3 attempts, exponential backoff starting at 2s, max 30s wait. Handles transient Render cold-start failures and Sarvam API flakiness without surfacing them as HTTP 500 to the user. Original exception propagates after all attempts are exhausted.
+
+- ✅ **OpenAPI documentation** — FastAPI `/docs` endpoint now populated with full API description, endpoint summary, parameter descriptions, and error response codes. Accessible at `https://word-translator-ko12.onrender.com/docs`.
+
 ---
 
 ## Medium-Term (1–2 months)
@@ -91,16 +101,6 @@ Extended the `/translate-doc` endpoint and `translate_doc()` with three new para
   - **Voice selection**: Expose the 30+ bulbul:v3 voices to the user, or default to `shubh` and keep UI clean?
   - **Chaining**: Support standalone `.docx` → MP3 upload AND a "Read translated doc aloud" button post-translation, or one mode only?
 
-### Translation Quality
-
-- 📋 **Sentence-boundary chunking** — Replace the current whitespace-split chunking for long paragraphs with a sentence-tokeniser (e.g. `nltk.sent_tokenize`). This preserves sentence context across chunk boundaries and improves translation coherence.
-
-- 💡 **Context-window stitching** — Send a small overlap of the previous batch's text as context to the Sarvam API for each subsequent request. May improve coherence at batch boundaries.
-
-### Formatting
-
-- 💡 **Basic formatting preservation** — Preserve bold, italic, and underline on translated runs where the source and target paragraph structure is 1:1. A safe-to-implement subset that avoids the complexity of full run-level reconstruction.
-
 ---
 
 ## Long-Term (3+ months)
@@ -108,8 +108,6 @@ Extended the `/translate-doc` endpoint and `translate_doc()` with three new para
 ### Scalability and Reliability
 
 - 💡 **Async Sarvam API calls** — Migrate from synchronous `SarvamAI.text.translate` to async equivalents (if supported by the SDK) and run batch calls concurrently with `asyncio.gather`. This would significantly reduce latency for documents with many batches.
-
-- 💡 **Retry with exponential backoff** — Wrap Sarvam API calls in a retry loop (e.g. `tenacity`) to handle transient network failures without surfacing them as 500 errors.
 
 - 💡 **File size limit** — Reject uploads exceeding a configurable size (e.g. 10 MB) before processing to prevent memory exhaustion.
 
@@ -120,8 +118,6 @@ Extended the `/translate-doc` endpoint and `translate_doc()` with three new para
 - 💡 **Prometheus metrics endpoint** — Expose `/metrics` with counters for requests, errors, and batch counts, and histograms for request duration and document size.
 
 ### Developer Experience
-
-- 💡 **OpenAPI documentation** — Populate FastAPI's auto-generated docs (`/docs`) with descriptions, examples, and response schemas for the `/translate-doc` endpoint.
 
 - 💡 **Docker image** — Add a `Dockerfile` for reproducible builds and straightforward deployment to any container platform.
 
@@ -138,3 +134,5 @@ Extended the `/translate-doc` endpoint and `translate_doc()` with three new para
 | User authentication | The service is consumed by a known frontend; auth is handled at the infrastructure level |
 | Multi-file / bulk translation | Not a stated requirement; increases API surface complexity significantly |
 | Transliteration (`/transliterate` endpoint) | Out of current scope — useful for Roman-script output but not relevant to the core .docx translation use case. Revisit if user demand emerges. |
+| Sentence-boundary chunking | `nltk` adds heavy dependency overhead for a code path that's rarely hit in practice. Most real-world paragraphs are under 900 chars. Indian languages aren't supported by `nltk.sent_tokenize` anyway. Current whitespace-split chunking is sufficient. |
+| Context-window stitching | Hard to implement correctly and harder to measure. Quality improvement at batch boundaries is marginal compared to the cost of getting it wrong. Revisit only if translation coherence becomes a documented user complaint. |

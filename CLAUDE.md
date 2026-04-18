@@ -129,9 +129,35 @@ Documents are translated paragraph-by-paragraph with a **900-character buffer li
 **Mismatch logging:** When the Sarvam API returns a different number of `\n`-separated lines than were submitted, a `WARNING`-level log message is emitted via the `translate_doc` logger.
 
 **Important caveats:**
-- Paragraph **formatting** (bold, italic, fonts, styles) is **not preserved** — all output paragraphs use the default document style.
+- Paragraph **styles** (e.g. Heading 1, Normal) and **alignment** are preserved on output paragraphs. Run-level formatting (bold, italic, font size, font family) is not preserved — all runs use the default run style.
 - The output paragraph count may differ from input if the API merges or splits lines on translation, or if long paragraphs are chunked.
 - Paragraphs, table cells, and section headers/footers are translated. Text boxes and shapes remain out of scope.
+
+### Paragraph Formatting Preservation (`translate_doc.py`)
+
+A `copy_paragraph_format(source_para, target_para)` helper (defined inside `translate_doc()`) copies two properties from each source paragraph to its corresponding output paragraph:
+
+- **Style name** — looked up in `new_doc.styles` by name; falls back silently to the default style if the style doesn't exist in the output document (e.g. custom styles defined in the source).
+- **Paragraph alignment** — copied directly from `paragraph_format.alignment`.
+
+Run-level formatting (bold, italic, font size, font family) is not copied. The helper is applied to every output paragraph, including empty ones, and to each cell paragraph in translated tables.
+
+### Retry with Exponential Backoff (`translate_doc.py`)
+
+Each Sarvam API call inside `translate_batch`'s `flush()` is wrapped with `tenacity`:
+
+```python
+@retry(
+    retry=retry_if_exception_type(Exception),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    stop=stop_after_attempt(3),
+    reraise=True,
+)
+def call_sarvam():
+    ...
+```
+
+This gives 3 attempts total: ~2s wait after the first failure, ~4s after the second, then the original exception is reraised. `reraise=True` ensures the exception propagates unchanged to `app.py`'s existing HTTP 500 handler after all attempts are exhausted.
 
 ### Dependency Injection (`translate_doc.py`)
 
@@ -169,6 +195,12 @@ Nine safeguards are applied in the endpoint, in cheapest-first order:
 
 All error responses include a `{"detail": "..."}` JSON body. Internal exception messages are never exposed.
 
+### OpenAPI Documentation (`app.py`)
+
+The FastAPI app is initialised with `title`, `description`, `version`, `contact`, and `openapi_tags` metadata. The `/translate-doc` endpoint includes `summary`, `description`, `response_description`, `tags`, and a `responses` dict covering HTTP 413, 422, 429, 504, and 500. Each `Form` parameter uses `Annotated[..., Form(description="...")]` to surface field descriptions in `/docs`.
+
+Interactive docs are available at `http://localhost:8000/docs` when running locally, and at `https://word-translator-ko12.onrender.com/docs` in production.
+
 ### Temporary File Handling (`app.py`)
 
 Each request creates a `tempfile.mkdtemp()` directory containing `input.docx` and `translated.docx`. Early-exit paths (char limit exceeded, timeout, exception) call `shutil.rmtree(tmpdir, True)` inline before returning. The success path uses `background_tasks.add_task(shutil.rmtree, tmpdir, True)` so the file remains readable until `FileResponse` finishes streaming.
@@ -184,10 +216,11 @@ Each request creates a `tempfile.mkdtemp()` directory containing `input.docx` an
 | `python-multipart` | Parse `multipart/form-data` file uploads      |
 | `slowapi`          | Per-IP rate limiting middleware               |
 | `sarvamai`         | Official Sarvam AI Python SDK                 |
+| `tenacity`         | Retry with exponential backoff for Sarvam API calls |
 | `pytest`           | Test runner (dev/test)                        |
 | `httpx`            | HTTP client required by FastAPI TestClient (dev/test) |
 
-**Note:** `requirements.txt` has no version pins. If you encounter compatibility issues, pin versions after verifying a working combination.
+All packages in `requirements.txt` are fully pinned (`==`) from a known-good Python 3.11 venv.
 
 ## Conventions and Patterns
 
@@ -201,12 +234,11 @@ Each request creates a `tempfile.mkdtemp()` directory containing `input.docx` an
 
 ## Known Limitations (not bugs)
 
-1. **No version pinning:** `requirements.txt` may break on future dependency updates.
-2. **Formatting loss:** Document styles and inline formatting are stripped during translation.
-3. **Partial document coverage:** Only top-level paragraphs are translated; tables and other content blocks are ignored.
-4. **No CI:** Changes cannot be automatically validated via a pipeline (tests can be run locally).
-5. **Rate limiter is per-process:** `slowapi` uses in-memory storage. If uvicorn is run with multiple workers (`--workers N`), each worker enforces its own independent limit. An IP can make `N × RATE_LIMIT_PER_MINUTE` requests per minute. Use Redis storage for multi-worker deployments.
-6. **Timeout does not stop the thread:** When `REQUEST_TIMEOUT_SECONDS` expires, HTTP 504 is returned immediately but the underlying translation thread continues running until the Sarvam API call completes. API credits may still be consumed.
+1. **Run-level formatting loss:** Paragraph styles and alignment are preserved, but bold, italic, font size, and font family are stripped. Translation changes character counts unpredictably, making run-boundary mapping unreliable.
+2. **Header/footer coverage is first-section only:** Headers and footers are translated for `doc.sections[0]` only. A `WARNING` is logged if the source document has more than one section.
+3. **Rate limiter is per-process:** `slowapi` uses in-memory storage. If uvicorn is run with multiple workers (`--workers N`), each worker enforces its own independent limit. An IP can make `N × RATE_LIMIT_PER_MINUTE` requests per minute. Use Redis storage for multi-worker deployments.
+4. **Timeout does not stop the thread:** When `REQUEST_TIMEOUT_SECONDS` expires, HTTP 504 is returned immediately but the underlying translation thread continues running until the Sarvam API call completes. API credits may still be consumed.
+5. **Retry does not interrupt the timeout clock:** The `tenacity` retry loop runs inside the `ThreadPoolExecutor` thread. Retries count against `REQUEST_TIMEOUT_SECONDS` — three attempts with backoff can consume up to ~36s before the timeout fires.
 
 ## Related Documents
 
@@ -216,11 +248,11 @@ Each request creates a `tempfile.mkdtemp()` directory containing `input.docx` an
 
 ## Development Workflow
 
-Since there is no CI pipeline, validate changes manually:
-
 1. Activate your virtual environment and install dependencies.
 2. Set up `.env` with a valid `SARVAM_API_KEY`.
 3. Run the test suite: `pytest -v` (no API key needed — all mocked).
 4. Start the server with `uvicorn app:app --reload`.
-5. Test end-to-end using `curl` or Postman against `http://localhost:8000/translate-doc`.
+5. Test end-to-end using `curl` or Postman against `http://localhost:8000/translate-doc`. Check `/docs` to verify OpenAPI metadata renders correctly.
 6. Commit with a descriptive message following the pattern used in git history (imperative, short, focused on what changed).
+
+CI runs automatically on every push and pull request via `.github/workflows/ci.yml` (`ubuntu-latest`, Python 3.11, `pytest -v`). No API key is required — all tests are fully mocked.

@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from docx import Document
 from dotenv import load_dotenv
+from typing import Annotated
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -55,7 +56,28 @@ _executor = ThreadPoolExecutor()
 # ---------------------------------------------------------------------------
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI()
+tags_metadata = [
+    {
+        "name": "translation",
+        "description": "Translate .docx documents between supported Indian language pairs.",
+    },
+]
+
+app = FastAPI(
+    title="Word Translator API",
+    description=(
+        "Translate Microsoft Word documents (.docx) between Indian languages "
+        "using the Sarvam AI translation API. Accepts a .docx file and returns "
+        "a translated .docx file. Paragraph styles, alignment, table cells, and "
+        "section headers/footers are preserved in the output."
+    ),
+    version="1.0.0",
+    contact={
+        "name": "Job Joseph",
+        "url": "https://job-joseph.com",
+    },
+    openapi_tags=tags_metadata,
+)
 app.state.limiter = limiter
 
 
@@ -81,18 +103,40 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Endpoint
 # ---------------------------------------------------------------------------
-@app.post("/translate-doc")
+@app.post(
+    "/translate-doc",
+    summary="Translate a Word document",
+    description=(
+        "Accepts a `.docx` file and translates its text content between two supported "
+        "BCP-47 language codes using the Sarvam AI translation API.\n\n"
+        "**What is translated:** paragraphs, table cells, section headers and footers.\n\n"
+        "**What is preserved:** paragraph styles (e.g. Heading 1) and alignment.\n\n"
+        "**What is not preserved:** bold, italic, font size, font family.\n\n"
+        "**Abuse protection:** language validation → mode validation → gender validation → "
+        "model validation → file size limit (5 MB) → document character limit (50,000 chars) → "
+        "per-IP rate limit (5 req/min) → request timeout (120s)."
+    ),
+    response_description="A translated `.docx` file named `translated.docx`.",
+    tags=["translation"],
+    responses={
+        413: {"description": "File exceeds MAX_FILE_SIZE_MB limit."},
+        422: {"description": "Invalid language code, mode, gender, model, or document too large."},
+        429: {"description": "Per-IP rate limit exceeded."},
+        504: {"description": "Translation timed out."},
+        500: {"description": "Sarvam API or internal processing failure."},
+    },
+)
 @limiter.limit(f"{RATE_LIMIT_PER_MINUTE}/minute")
 async def translate_document(
     request: Request,
     background_tasks: BackgroundTasks,
+    source_lang: Annotated[str, Form(..., description="BCP-47 source language code. See supported values in SPEC.md.")],
+    target_lang: Annotated[str, Form(..., description="BCP-47 target language code.")],
     file: UploadFile = File(...),
-    source_lang: str = Form(...),
-    target_lang: str = Form(...),
-    mode: str = Form("formal"),
-    model: str = Form("mayura:v1"),
-    speaker_gender: str = Form(None),
-    numerals_format: str = Form("international"),
+    mode: Annotated[str, Form(description="Translation mode. One of: formal, colloquial, classic-colloquial, code-mixed. sarvam-translate:v1 supports formal only.")] = "formal",
+    model: Annotated[str, Form(description="Translation model: mayura:v1 (11 languages, all modes) or sarvam-translate:v1 (22 languages, formal only).")] = "mayura:v1",
+    speaker_gender: Annotated[str | None, Form(description="Speaker gender (Male/Female). Optional. Improves output for gendered languages like Hindi.")] = None,
+    numerals_format: Annotated[str, Form(description="Numeral style: international (0-9) or native script numerals. Defaults to international.")] = "international",
 ):
     # 1. Validate cheap scalar fields before any I/O
     if mode not in VALID_MODES:

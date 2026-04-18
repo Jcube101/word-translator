@@ -4,6 +4,7 @@ import os
 from docx import Document
 from dotenv import load_dotenv
 from sarvamai import SarvamAI
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,16 @@ def translate_doc(input_path, output_path, source_lang, target_lang, mode, model
     doc = Document(input_path)
     new_doc = Document()
 
+    def copy_paragraph_format(source_para, target_para):
+        """Copy paragraph-level formatting from source to target.
+        Covers style name and paragraph alignment only.
+        Run-level formatting (bold, italic, font) is not copied."""
+        try:
+            target_para.style = new_doc.styles[source_para.style.name]
+        except KeyError:
+            pass
+        target_para.paragraph_format.alignment = source_para.paragraph_format.alignment
+
     def translate_batch(texts: list[str]) -> list[str]:
         """Translate a list of non-empty strings, batching to respect MAX_CHARS.
         Returns translated strings in the same order as input."""
@@ -85,17 +96,27 @@ def translate_doc(input_path, output_path, source_lang, target_lang, mode, model
             if not buf:
                 return
             text_block = "\n".join(buf)
-            kwargs = dict(
-                input=text_block,
-                source_language_code=source_lang,
-                target_language_code=target_lang,
-                mode=mode,
-                model=model,
-                numerals_format=numerals_format,
+
+            @retry(
+                retry=retry_if_exception_type(Exception),
+                wait=wait_exponential(multiplier=1, min=2, max=30),
+                stop=stop_after_attempt(3),
+                reraise=True,
             )
-            if speaker_gender is not None:
-                kwargs["speaker_gender"] = speaker_gender
-            response = client.text.translate(**kwargs)
+            def call_sarvam():
+                kwargs = dict(
+                    input=text_block,
+                    source_language_code=source_lang,
+                    target_language_code=target_lang,
+                    mode=mode,
+                    numerals_format=numerals_format,
+                    model=model,
+                )
+                if speaker_gender is not None:
+                    kwargs["speaker_gender"] = speaker_gender
+                return client.text.translate(**kwargs)
+
+            response = call_sarvam()
             result_lines = response.translated_text.split("\n")
             if len(result_lines) != len(buf):
                 logger.warning(
@@ -120,37 +141,50 @@ def translate_doc(input_path, output_path, source_lang, target_lang, mode, model
     # Translate paragraphs
     para_texts = []
     para_empty_flags = []
+    source_paras = []
+
     for para in doc.paragraphs:
         text = para.text.strip()
         para_empty_flags.append(not text)
+        source_paras.append(para)
         if text:
             para_texts.append(text)
 
     translated_paras = translate_batch(para_texts)
     translated_iter = iter(translated_paras)
+    source_iter = iter(source_paras)
+
     for is_empty in para_empty_flags:
+        source_para = next(source_iter)
         if is_empty:
-            new_doc.add_paragraph("")
+            new_para = new_doc.add_paragraph("")
         else:
-            new_doc.add_paragraph(next(translated_iter, ""))
+            new_para = new_doc.add_paragraph(next(translated_iter, ""))
+        copy_paragraph_format(source_para, new_para)
 
     # Translate table cells
     for table in doc.tables:
         new_table = new_doc.add_table(rows=len(table.rows), cols=len(table.columns))
         for row_idx, row in enumerate(table.rows):
             for col_idx, cell in enumerate(row.cells):
-                cell_texts = [p.text.strip() for p in cell.paragraphs if p.text.strip()]
+                source_cell_paras = cell.paragraphs
+                cell_texts = [p.text.strip() for p in source_cell_paras if p.text.strip()]
+                non_empty_source_paras = [p for p in source_cell_paras if p.text.strip()]
                 if not cell_texts:
                     continue
                 translated_cell_texts = translate_batch(cell_texts)
                 new_cell = new_table.cell(row_idx, col_idx)
                 for para in new_cell.paragraphs:
                     para.clear()
-                for i, translated_text in enumerate(translated_cell_texts):
+                for i, (translated_text, source_para) in enumerate(
+                    zip(translated_cell_texts, non_empty_source_paras)
+                ):
                     if i == 0:
                         new_cell.paragraphs[0].add_run(translated_text)
+                        copy_paragraph_format(source_para, new_cell.paragraphs[0])
                     else:
-                        new_cell.add_paragraph(translated_text)
+                        new_para = new_cell.add_paragraph(translated_text)
+                        copy_paragraph_format(source_para, new_para)
 
     # Translate headers and footers (default section only; warn if multiple sections)
     if len(doc.sections) > 1:

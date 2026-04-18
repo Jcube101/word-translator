@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from translate_doc import translate_doc, _chunk_text
 
@@ -291,6 +292,37 @@ class TestTranslateDocBatching:
         with pytest.raises(Exception, match="SARVAM_API_KEY not set"):
             translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal")
 
+    def test_retry_succeeds_after_two_failures(self, tmp_path):
+        """Transient failures on the first two calls are retried; third attempt succeeds."""
+        response = MagicMock()
+        response.translated_text = "नमस्ते"
+        client = MagicMock()
+        client.text.translate.side_effect = [
+            Exception("transient error"),
+            Exception("transient error"),
+            response,
+        ]
+
+        input_path = _make_docx(["Hello"])
+        output_path = str(tmp_path / "out.docx")
+
+        translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        assert client.text.translate.call_count == 3
+        result = Document(output_path)
+        assert any(p.text == "नमस्ते" for p in result.paragraphs)
+
+    def test_retry_reraises_after_three_failures(self, tmp_path):
+        """After three consecutive failures the original exception propagates."""
+        client = MagicMock()
+        client.text.translate.side_effect = Exception("permanent error")
+
+        input_path = _make_docx(["Hello"])
+        output_path = str(tmp_path / "out.docx")
+
+        with pytest.raises(Exception, match="permanent error"):
+            translate_doc(input_path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
 
 # ---------------------------------------------------------------------------
 # Document coverage tests — tables, headers, footers
@@ -376,3 +408,63 @@ class TestDocumentCoverage:
 
         all_inputs = [call.kwargs.get("input", "") for call in client.text.translate.call_args_list]
         assert any("Page Footer" in inp for inp in all_inputs)
+
+
+# ---------------------------------------------------------------------------
+# Paragraph formatting preservation tests
+# ---------------------------------------------------------------------------
+
+class TestParagraphFormatting:
+
+    def test_heading1_style_preserved(self, tmp_path):
+        """A paragraph styled as 'Heading 1' retains that style in the output."""
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "input.docx")
+        doc = Document()
+        doc.add_paragraph("Hello", style="Heading 1")
+        doc.save(path)
+
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते")
+
+        translate_doc(path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        result = Document(output_path)
+        non_empty = [p for p in result.paragraphs if p.text.strip()]
+        assert non_empty[0].style.name == "Heading 1"
+
+    def test_center_alignment_preserved(self, tmp_path):
+        """A centered paragraph retains WD_ALIGN_PARAGRAPH.CENTER in the output."""
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "input.docx")
+        doc = Document()
+        para = doc.add_paragraph("Centered text")
+        para.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        doc.save(path)
+
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("केंद्रित पाठ")
+
+        translate_doc(path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        result = Document(output_path)
+        non_empty = [p for p in result.paragraphs if p.text.strip()]
+        assert non_empty[0].paragraph_format.alignment == WD_ALIGN_PARAGRAPH.CENTER
+
+    def test_unknown_style_does_not_raise(self, tmp_path):
+        """A source paragraph with a custom style absent from a fresh Document does not raise."""
+        from docx.enum.style import WD_STYLE_TYPE
+        tmpdir = tempfile.mkdtemp()
+        path = os.path.join(tmpdir, "input.docx")
+        doc = Document()
+        doc.styles.add_style("MyCustomStyle", WD_STYLE_TYPE.PARAGRAPH)
+        para = doc.add_paragraph("Hello")
+        para.style = doc.styles["MyCustomStyle"]
+        doc.save(path)
+
+        output_path = str(tmp_path / "out.docx")
+        client = _mock_client("नमस्ते")
+
+        translate_doc(path, output_path, "en-IN", "hi-IN", "formal", client=client)
+
+        assert os.path.exists(output_path)
